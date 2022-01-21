@@ -1,9 +1,12 @@
-use gamerboy::emulator_ram::EmuRAM;
-use gamerboy::RAM;
+use gamerboy::*;
 
 // Gameboy EMU
 fn main() {
-    let emulator_ram = EmuRAM::<{ 32 * 1024 }>::create();
+    let mut ram = EmuRAM::<{ 8 * 1024 }>::create();
+    let mut vram = EmuRAM::<{ 8 * 1024 }>::create();
+    let mut gpu = EmuGPU::create(&mut vram);
+    let bus = EmuBus::create(&mut ram, &mut gpu);
+    let cpu = EmuCPU::create(&bus);
     /*
     let emulator_vram = EmuVRAM...;
     let emulator_irq_controller = EmuIRQController...;

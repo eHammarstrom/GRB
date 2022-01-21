@@ -1,12 +1,9 @@
 use crate::bus;
-use crate::ram;
 
-pub trait CPU<ADDRSPACE, MEMWIDTH, B, R>: Sized
-where
-    R: ram::RAM<Addr = ADDRSPACE, Data = MEMWIDTH>,
-    B: bus::Bus<R, Addr = ADDRSPACE, Data = MEMWIDTH>,
-{
-    fn create(bus: B, ram: R) -> Self;
+pub trait CPU<'a, ADDRSPACE, MEMWIDTH>: Sized {
+    fn create(
+        bus: &'a dyn bus::Bus<'a, Addr = ADDRSPACE, Data = MEMWIDTH>
+    ) -> Self;
 
     /// Executes the instruction at PC and returns cycles spent
     fn step(&mut self) -> usize;

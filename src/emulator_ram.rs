@@ -16,6 +16,15 @@ impl<const SIZE: usize> Addressable for EmuRAM<SIZE> {
     ) -> Result<Self::Data, AddressError<Self::Addr>> {
         Err(AddressError::OutOfBounds(addr))
     }
+
+    fn write_byte(
+        &self,
+        addr: Self::Addr,
+        data: Self::Data,
+    ) -> Result<(), AddressError<Self::Addr>> {
+        Err(AddressError::OutOfBounds(addr))
+    }
+
 }
 
 impl<const SIZE: usize> RAM for EmuRAM<SIZE> {

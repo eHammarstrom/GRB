@@ -18,7 +18,7 @@ impl CycleTime {
 
 pub trait Timed {
     /// This function progresses the internal timings of a Timer
-    fn catchup(time: CycleTime);
+    fn catchup(&self, time: CycleTime);
 }
 
 #[cfg(test)]

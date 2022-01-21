@@ -7,6 +7,7 @@ pub trait Addressable {
     type Data: Debug + Display + Copy;
 
     fn read_byte(&self, addr: Self::Addr) -> Result<Self::Data, AddressError<Self::Addr>>;
+    fn write_byte(&self, addr: Self::Addr, data: Self::Data) -> Result<(), AddressError<Self::Addr>>;
 }
 
 #[derive(Debug)]
