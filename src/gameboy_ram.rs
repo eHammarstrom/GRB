@@ -3,6 +3,9 @@ use crate::ram::RAM;
 
 // Gameboy RAM; 16-bit address space, 8-bit memory width
 pub struct GameBoyRAM<const SIZE: usize> {
+    /// Inclusive start and end addresses
+    start_addr: u16,
+    end_addr: u16,
     mem: [u8; SIZE],
 }
 
@@ -14,7 +17,11 @@ impl<const SIZE: usize> Addressable for GameBoyRAM<SIZE> {
         &self,
         addr: Self::Addr,
     ) -> Result<Self::Data, AddressError<Self::Addr>> {
-        Err(AddressError::OutOfBounds(addr))
+        if addr < self.start_addr || addr > self.end_addr {
+            return Err(AddressError::OutOfBounds(addr))
+        }
+
+        Ok(0)
     }
 
     fn write_byte(
@@ -22,13 +29,21 @@ impl<const SIZE: usize> Addressable for GameBoyRAM<SIZE> {
         addr: Self::Addr,
         data: Self::Data,
     ) -> Result<(), AddressError<Self::Addr>> {
-        Err(AddressError::OutOfBounds(addr))
+        if addr < self.start_addr || addr > self.end_addr {
+            return Err(AddressError::OutOfBounds(addr))
+        }
+
+        Ok(())
     }
 
 }
 
 impl<const SIZE: usize> RAM for GameBoyRAM<SIZE> {
-    fn create() -> Self {
-        GameBoyRAM { mem: [0u8; SIZE] }
+    fn create(start: Self::Addr, end: Self::Addr) -> Self {
+        GameBoyRAM {
+            start_addr: start,
+            end_addr: end,
+            mem: [0u8; SIZE],
+        }
     }
 }

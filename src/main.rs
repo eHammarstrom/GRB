@@ -2,8 +2,8 @@ use gamerboy::*;
 
 // Gameboy EMU
 fn main() {
-    let mut ram = GameBoyRAM::<{ 8 * 1024 }>::create();
-    let mut vram = GameBoyRAM::<{ 8 * 1024 }>::create();
+    let mut ram = GameBoyRAM::<{ 8 * 1024 }>::create(0xC000, 0xDFFF);
+    let mut vram = GameBoyRAM::<{ 8 * 1024 }>::create(0x8000, 0x9FFF);
     let mut gpu = GameBoyGPU::create(&mut vram);
     let bus = GameBoyBus::create(&mut ram, &mut gpu);
     let cpu = GameBoyCPU::create(&bus);
