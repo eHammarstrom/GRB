@@ -3,19 +3,19 @@ use crate::timed::{Timed, CycleTime};
 use crate::gpu::GPU;
 use crate::ram::RAM;
 
-pub struct EmuGPU<'a> {
+pub struct GameBoyGPU<'a> {
     vram: &'a dyn RAM<Addr=u16, Data=u8>
 }
 
-impl<'a> GPU<'a> for EmuGPU<'a> {
+impl<'a> GPU<'a> for GameBoyGPU<'a> {
     fn create(vram: &'a dyn RAM<Addr=Self::Addr, Data=Self::Data>) -> Self {
-        EmuGPU {
+        GameBoyGPU {
             vram,
         }
     }
 }
 
-impl<'a> Addressable for EmuGPU<'a> {
+impl<'a> Addressable for GameBoyGPU<'a> {
     type Addr = u16;
     type Data = u8;
 
@@ -28,7 +28,7 @@ impl<'a> Addressable for EmuGPU<'a> {
     }
 }
 
-impl<'a> Timed for EmuGPU<'a> {
+impl<'a> Timed for GameBoyGPU<'a> {
     fn catchup(&self, time: CycleTime) {
     }
 }

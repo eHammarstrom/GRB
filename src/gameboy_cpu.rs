@@ -2,7 +2,7 @@ use crate::cpu::CPU;
 use crate::bus::Bus;
 
 /// GameBoy CPU
-pub struct EmuCPU<'a> {
+pub struct GameBoyCPU<'a> {
     /// CPU bus
     bus: &'a dyn Bus<'a, Addr = u16, Data = u8>,
     /// CPU Registers
@@ -16,15 +16,15 @@ pub struct EmuCPU<'a> {
     PC: u16,
 }
 
-impl EmuCPU<'_> {
+impl GameBoyCPU<'_> {
 }
 
-impl<'a> CPU<'a, u16, u8> for EmuCPU<'a>
+impl<'a> CPU<'a, u16, u8> for GameBoyCPU<'a>
 {
     fn create(
         bus: &'a dyn Bus<'a, Addr = u16, Data = u8>
     ) -> Self {
-        EmuCPU {
+        GameBoyCPU {
             bus: bus,
             A: 0, B: 0, C: 0, D: 0, H: 0, L: 0,
             SP: 0,

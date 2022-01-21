@@ -3,12 +3,12 @@ use crate::bus::Bus;
 use crate::ram::RAM;
 use crate::gpu::GPU;
 
-pub struct EmuBus<'a> {
+pub struct GameBoyBus<'a> {
     ram: &'a mut dyn RAM<Addr = u16, Data = u8>,
     gpu: &'a mut dyn GPU<'a, Addr = u16, Data = u8>,
 }
 
-impl<'a> Addressable for EmuBus<'a> {
+impl<'a> Addressable for GameBoyBus<'a> {
     type Addr = u16;
     type Data = u8;
 
@@ -27,11 +27,11 @@ impl<'a> Addressable for EmuBus<'a> {
     }
 }
 
-impl<'a> Bus<'a> for EmuBus<'a> {
+impl<'a> Bus<'a> for GameBoyBus<'a> {
     fn create(
         ram: &'a mut dyn RAM<Addr = Self::Addr, Data = Self::Data>,
         gpu: &'a mut dyn GPU<'a, Addr = Self::Addr, Data = Self::Data>,
     ) -> Self {
-        EmuBus { ram, gpu }
+        GameBoyBus { ram, gpu }
     }
 }

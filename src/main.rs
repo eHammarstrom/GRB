@@ -2,30 +2,30 @@ use gamerboy::*;
 
 // Gameboy EMU
 fn main() {
-    let mut ram = EmuRAM::<{ 8 * 1024 }>::create();
-    let mut vram = EmuRAM::<{ 8 * 1024 }>::create();
-    let mut gpu = EmuGPU::create(&mut vram);
-    let bus = EmuBus::create(&mut ram, &mut gpu);
-    let cpu = EmuCPU::create(&bus);
+    let mut ram = GameBoyRAM::<{ 8 * 1024 }>::create();
+    let mut vram = GameBoyRAM::<{ 8 * 1024 }>::create();
+    let mut gpu = GameBoyGPU::create(&mut vram);
+    let bus = GameBoyBus::create(&mut ram, &mut gpu);
+    let cpu = GameBoyCPU::create(&bus);
     /*
-    let emulator_vram = EmuVRAM...;
-    let emulator_irq_controller = EmuIRQController...;
-    let emulator_gpu = EmuGPU...;
-    let emulator_timer = EmuTIMER...;
+    let gameboy_vram = GameBoyVRAM...;
+    let gameboy_irq_controller = GameBoyIRQController...;
+    let gameboy_gpu = GameBoyGPU...;
+    let gameboy_timer = GameBoyTIMER...;
 
-    let emulator_bus = EmuBUS::create(ram, vram, irq_controller, timer, gpu);
+    let gameboy_bus = GameBoyBUS::create(ram, vram, irq_controller, timer, gpu);
 
-    let emulator_cpu = EmuCPU::create(emulator_bus);
+    let gameboy_cpu = GameBoyCPU::create(gameboy_bus);
 
-    let emulator_cartridge = EmuCartridge::from_path("pokemon.bin");
+    let gameboy_cartridge = GameBoyCartridge::from_path("pokemon.bin");
 
-    emulator_bus.map_cartridge(emulator_cartridge);
+    gameboy_bus.map_cartridge(gameboy_cartridge);
 
     while (true) {
         let mut cycles = 0;
 
         // Process all IRQ requests
-        while let Some(c) = emulator_cpu.interrupt() {
+        while let Some(c) = gameboy_cpu.interrupt() {
             // TODO: Figure out cycles for pushing PC, fetching vector from
             // IRQ table and loading into PC.
             // Some guy on the internet says this may not be an issue since
@@ -33,15 +33,15 @@ fn main() {
             // work.
             cycles += c;
 
-            emulator_bus.timer().progress(cycles);
-            emulator_bus.gpu().progress(cycles);
+            gameboy_bus.timer().progress(cycles);
+            gameboy_bus.gpu().progress(cycles);
         }
 
         // Continue executing instructions
-        let cycles = emulator_cpu.step();
+        let cycles = gameboy_cpu.step();
 
-        emulator_bus.timer().progress(cycles);
-        emulator_bus.gpu().progress(cycles);
+        gameboy_bus.timer().progress(cycles);
+        gameboy_bus.gpu().progress(cycles);
     }
     */
 }
