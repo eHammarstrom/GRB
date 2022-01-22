@@ -1,15 +1,15 @@
 use crate::addressable::{AddressError, Addressable};
-use crate::ram::RAM;
+use crate::ram;
 
 // Gameboy RAM; 16-bit address space, 8-bit memory width
-pub struct GameBoyRAM<const SIZE: usize> {
+pub struct RAM<const SIZE: usize> {
     /// Inclusive start and end addresses
     start_addr: u16,
     end_addr: u16,
     mem: [u8; SIZE],
 }
 
-impl<const SIZE: usize> Addressable for GameBoyRAM<SIZE> {
+impl<const SIZE: usize> Addressable for RAM<SIZE> {
     type Addr = u16;
     type Data = u8;
 
@@ -21,11 +21,13 @@ impl<const SIZE: usize> Addressable for GameBoyRAM<SIZE> {
             return Err(AddressError::OutOfBounds(addr))
         }
 
-        Ok(0)
+        let offset = addr - self.start_addr;
+
+        Ok(self.mem[offset as usize])
     }
 
     fn write_byte(
-        &self,
+        &mut self,
         addr: Self::Addr,
         data: Self::Data,
     ) -> Result<(), AddressError<Self::Addr>> {
@@ -33,16 +35,21 @@ impl<const SIZE: usize> Addressable for GameBoyRAM<SIZE> {
             return Err(AddressError::OutOfBounds(addr))
         }
 
+        let offset = addr - self.start_addr;
+
+        self.mem[offset as usize] = data;
+
         Ok(())
     }
 
 }
 
-impl<const SIZE: usize> RAM for GameBoyRAM<SIZE> {
-    fn create(start: Self::Addr, end: Self::Addr) -> Self {
-        GameBoyRAM {
+impl<const SIZE: usize> ram::RAM for RAM<SIZE> {
+    fn create(start: Self::Addr) -> Self {
+        let size: Self::Addr = SIZE.try_into().expect("RAM size overflowed addspace");
+        RAM {
             start_addr: start,
-            end_addr: end,
+            end_addr: start + size - 1,
             mem: [0u8; SIZE],
         }
     }

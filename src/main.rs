@@ -2,11 +2,13 @@ use gamerboy::*;
 
 // Gameboy EMU
 fn main() {
-    let mut ram = GameBoyRAM::<{ 8 * 1024 }>::create(0xC000, 0xDFFF);
-    let mut vram = GameBoyRAM::<{ 8 * 1024 }>::create(0x8000, 0x9FFF);
-    let mut gpu = GameBoyGPU::create(&mut vram);
-    let bus = GameBoyBus::create(&mut ram, &mut gpu);
-    let cpu = GameBoyCPU::create(&bus);
+    let mut ram = gameboy::RAM::<{ 8 * 1024 }>::create(0xC000);
+    let mut vram = gameboy::RAM::<{ 8 * 1024 }>::create(0x8000);
+    let mut gpu = gameboy::GPU::create(&mut vram);
+    let bus = gameboy::Bus::create(&mut ram, &mut gpu);
+    let mut cpu = gameboy::CPU::create(4194304, &bus);
+
+    let _ = cpu.step();
     /*
     let gameboy_vram = GameBoyVRAM...;
     let gameboy_irq_controller = GameBoyIRQController...;

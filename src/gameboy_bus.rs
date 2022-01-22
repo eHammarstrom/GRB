@@ -1,14 +1,14 @@
 use crate::addressable::*;
-use crate::bus::Bus;
+use crate::bus;
 use crate::ram::RAM;
 use crate::gpu::GPU;
 
-pub struct GameBoyBus<'a> {
+pub struct Bus<'a> {
     ram: &'a mut dyn RAM<Addr = u16, Data = u8>,
     gpu: &'a mut dyn GPU<'a, Addr = u16, Data = u8>,
 }
 
-impl<'a> Addressable for GameBoyBus<'a> {
+impl<'a> Addressable for Bus<'a> {
     type Addr = u16;
     type Data = u8;
 
@@ -18,7 +18,7 @@ impl<'a> Addressable for GameBoyBus<'a> {
     }
 
     fn write_byte(
-        &self,
+        &mut self,
         addr: Self::Addr,
         data: Self::Data,
     ) -> Result<(), AddressError<Self::Addr>> {
@@ -27,11 +27,11 @@ impl<'a> Addressable for GameBoyBus<'a> {
     }
 }
 
-impl<'a> Bus<'a> for GameBoyBus<'a> {
+impl<'a> bus::Bus<'a> for Bus<'a> {
     fn create(
         ram: &'a mut dyn RAM<Addr = Self::Addr, Data = Self::Data>,
         gpu: &'a mut dyn GPU<'a, Addr = Self::Addr, Data = Self::Data>,
     ) -> Self {
-        GameBoyBus { ram, gpu }
+        Bus { ram, gpu }
     }
 }

@@ -12,11 +12,15 @@ pub use bus::*;
 pub use ram::*;
 pub use gpu::*;
 
+
 mod gameboy_cpu;
 mod gameboy_bus;
 mod gameboy_ram;
 mod gameboy_gpu;
-pub use gameboy_cpu::*;
-pub use gameboy_bus::*;
-pub use gameboy_ram::*;
-pub use gameboy_gpu::*;
+
+pub mod gameboy {
+    pub use crate::gameboy_cpu::*;
+    pub use crate::gameboy_bus::*;
+    pub use crate::gameboy_ram::*;
+    pub use crate::gameboy_gpu::*;
+}
