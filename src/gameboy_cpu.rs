@@ -3,19 +3,10 @@ use crate::bus::Bus;
 use crate::cpu;
 use crate::cpu::CPUError;
 use crate::cpu::Word;
+use crate::gameboy_cpu_inst::*;
 
 #[derive(Clone, Copy, Debug)]
-enum CPUOperation {
-    NOP,
-    STOP,
-    LD,
-    INC,
-    DEC,
-    // FIXME: To be continued
-}
-
-#[derive(Clone, Copy, Debug)]
-enum CPURegister {
+pub enum Reg {
     /// 8-bit registers
     A,
     B,
@@ -34,13 +25,13 @@ enum CPURegister {
     SP,
 }
 
-impl CPURegister {
+impl Reg {
     // FIXME: Create matrix (https://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html) instead
     fn src_from_operand(oper: u8) -> Self {
-        use CPURegister::*;
+        use Reg::*;
 
         let lo = oper & 0xF;
-        let regs: [CPURegister; 16] = [B, C, D, E, H, L, HL, A, B, C, D, E, H, L, HL, A];
+        let regs: [Reg; 16] = [B, C, D, E, H, L, HL, A, B, C, D, E, H, L, HL, A];
         regs[lo as usize]
     }
 }
@@ -66,72 +57,72 @@ pub struct CPU<'a> {
 }
 
 impl CPU<'_> {
-    fn get_reg_byte(&mut self, reg: CPURegister) -> Result<u8, CPUError> {
+    fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError> {
         match reg {
-            CPURegister::A => Ok(self.AF.get_high()),
-            CPURegister::B => Ok(self.BC.get_high()),
-            CPURegister::C => Ok(self.BC.get_low()),
-            CPURegister::D => Ok(self.DE.get_high()),
-            CPURegister::E => Ok(self.DE.get_low()),
-            CPURegister::F => Ok(self.AF.get_low()),
-            CPURegister::H => Ok(self.HL.get_high()),
-            CPURegister::L => Ok(self.HL.get_low()),
+            Reg::A => Ok(self.AF.get_high()),
+            Reg::B => Ok(self.BC.get_high()),
+            Reg::C => Ok(self.BC.get_low()),
+            Reg::D => Ok(self.DE.get_high()),
+            Reg::E => Ok(self.DE.get_low()),
+            Reg::F => Ok(self.AF.get_low()),
+            Reg::H => Ok(self.HL.get_high()),
+            Reg::L => Ok(self.HL.get_low()),
             _ => Err(CPUError::BadRegisterAccess(
                 "Tried reading Byte from Word reg",
             )),
         }
     }
 
-    fn get_reg_word(&mut self, reg: CPURegister) -> Result<u16, CPUError> {
+    fn get_reg_word(&mut self, reg: Reg) -> Result<u16, CPUError> {
         match reg {
-            CPURegister::AF => Ok(self.AF.into()),
-            CPURegister::BC => Ok(self.BC.into()),
-            CPURegister::DE => Ok(self.BC.into()),
-            CPURegister::HL => Ok(self.HL.into()),
-            CPURegister::SP => Ok(self.SP.into()),
-            CPURegister::PC => Ok(self.PC.into()),
+            Reg::AF => Ok(self.AF.into()),
+            Reg::BC => Ok(self.BC.into()),
+            Reg::DE => Ok(self.BC.into()),
+            Reg::HL => Ok(self.HL.into()),
+            Reg::SP => Ok(self.SP.into()),
+            Reg::PC => Ok(self.PC.into()),
             _ => Err(CPUError::BadRegisterAccess(
                 "Tried reading Word from Byte reg",
             )),
         }
     }
 
-    fn set_reg_byte(&mut self, reg: CPURegister, val: u8) -> Result<(), CPUError> {
+    fn set_reg_byte(&mut self, reg: Reg, val: u8) -> Result<(), CPUError> {
         match reg {
-            CPURegister::A => Ok(self.AF.set_high(val)),
-            CPURegister::B => Ok(self.BC.set_high(val)),
-            CPURegister::C => Ok(self.BC.set_low(val)),
-            CPURegister::D => Ok(self.DE.set_high(val)),
-            CPURegister::E => Ok(self.DE.set_low(val)),
-            CPURegister::F => Ok(self.AF.set_low(val)),
-            CPURegister::H => Ok(self.HL.set_high(val)),
-            CPURegister::L => Ok(self.HL.set_low(val)),
+            Reg::A => Ok(self.AF.set_high(val)),
+            Reg::B => Ok(self.BC.set_high(val)),
+            Reg::C => Ok(self.BC.set_low(val)),
+            Reg::D => Ok(self.DE.set_high(val)),
+            Reg::E => Ok(self.DE.set_low(val)),
+            Reg::F => Ok(self.AF.set_low(val)),
+            Reg::H => Ok(self.HL.set_high(val)),
+            Reg::L => Ok(self.HL.set_low(val)),
             _ => Err(CPUError::BadRegisterAccess(
                 "Mismatching register {reg} and value {val} width",
             )),
         }
     }
 
-    fn set_reg_word(&mut self, reg: CPURegister, val: u16) -> Result<(), CPUError> {
+    fn set_reg_word(&mut self, reg: Reg, val: u16) -> Result<(), CPUError> {
         match reg {
-            CPURegister::AF => Ok(self.AF = val.into()),
-            CPURegister::BC => Ok(self.BC = val.into()),
-            CPURegister::DE => Ok(self.BC = val.into()),
-            CPURegister::HL => Ok(self.HL = val.into()),
-            CPURegister::SP => Ok(self.SP = val.into()),
-            CPURegister::PC => Ok(self.PC = val.into()),
+            Reg::AF => Ok(self.AF = val.into()),
+            Reg::BC => Ok(self.BC = val.into()),
+            Reg::DE => Ok(self.BC = val.into()),
+            Reg::HL => Ok(self.HL = val.into()),
+            Reg::SP => Ok(self.SP = val.into()),
+            Reg::PC => Ok(self.PC = val.into()),
             _ => Err(CPUError::BadRegisterAccess(
                 "Mismatching register {reg} and value {val} width",
             )),
         }
     }
 
-    fn add_byte(&mut self, dst_reg: CPURegister, val: u8) -> Result<(), CPUError> {
+    fn add_byte(&mut self, dst_reg: Reg, val: u8) -> Result<(), CPUError> {
         let reg_val = self.get_reg_byte(dst_reg)?;
         self.set_reg_byte(dst_reg, reg_val + val)
     }
 
-    fn add_word(&mut self, dst_reg: CPURegister, val: u16) -> Result<(), CPUError> {
+    fn add_word(&mut self, dst_reg: Reg, val: u16) -> Result<(), CPUError> {
         let reg_val = self.get_reg_word(dst_reg)?;
         self.set_reg_word(dst_reg, reg_val + val)
     }
@@ -163,8 +154,8 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
 
         if opcode & 0x80 == 0x80 {
             // ADD8
-            let dst_reg = CPURegister::A;
-            let src_reg = CPURegister::src_from_operand(opcode);
+            let dst_reg = Reg::A;
+            let src_reg = Reg::src_from_operand(opcode);
             // FIXME: unsafe unwrap
             let src_val = self.get_reg_byte(src_reg).unwrap();
             self.add_byte(dst_reg, src_val).unwrap()

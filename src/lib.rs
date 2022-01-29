@@ -14,6 +14,7 @@ pub use ram::*;
 
 mod gameboy_bus;
 mod gameboy_cpu;
+mod gameboy_cpu_inst;
 mod gameboy_gpu;
 mod gameboy_ram;
 
