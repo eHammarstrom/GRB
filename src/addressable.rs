@@ -1,13 +1,17 @@
 use std::error::Error;
 use std::fmt;
-use std::fmt::{Debug, Display, UpperHex };
+use std::fmt::{Debug, Display, UpperHex};
 
 pub trait Addressable {
     type Addr: Debug + Display + UpperHex + Copy;
     type Data: Debug + Display + UpperHex + Copy;
 
     fn read_byte(&self, addr: Self::Addr) -> Result<Self::Data, AddressError<Self::Addr>>;
-    fn write_byte(&mut self, addr: Self::Addr, data: Self::Data) -> Result<(), AddressError<Self::Addr>>;
+    fn write_byte(
+        &mut self,
+        addr: Self::Addr,
+        data: Self::Data,
+    ) -> Result<(), AddressError<Self::Addr>>;
 }
 
 #[derive(Debug)]
@@ -31,5 +35,4 @@ impl<ADDRSPACE: Debug + Copy + Display + UpperHex> Display for AddressError<ADDR
     }
 }
 
-impl<ADDRSPACE: Debug + Copy + Display + UpperHex> Error for AddressError<ADDRSPACE> {
-}
+impl<ADDRSPACE: Debug + Copy + Display + UpperHex> Error for AddressError<ADDRSPACE> {}

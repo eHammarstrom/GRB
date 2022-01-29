@@ -1,6 +1,6 @@
 use crate::addressable::Addressable;
-use crate::ram::RAM;
 use crate::gpu::GPU;
+use crate::ram::RAM;
 
 pub trait Bus<'a>: Addressable {
     fn create(

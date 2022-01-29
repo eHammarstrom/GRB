@@ -1,27 +1,8 @@
-use crate::cpu;
-use crate::cpu::Word;
-use crate::bus::Bus;
 use crate::addressable::*;
-
-use std::fmt;
-
-#[derive(Debug)]
-enum InstructionError {
-    IllegalOperand(&'static str),
-}
-
-impl fmt::Display for InstructionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!()
-    }
-}
-
-impl std::error::Error for InstructionError {}
-
-#[derive(Debug)]
-enum CPUError {
-    BadRegisterWrite(&'static str),
-}
+use crate::bus::Bus;
+use crate::cpu;
+use crate::cpu::CPUError;
+use crate::cpu::Word;
 
 #[derive(Clone, Copy, Debug)]
 enum CPUOperation {
@@ -36,9 +17,21 @@ enum CPUOperation {
 #[derive(Clone, Copy, Debug)]
 enum CPURegister {
     /// 8-bit registers
-    A, B, C, D, E, F, H, L,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    H,
+    L,
     /// 16-bit registers (some reference the concatenation of two 8-bit registers)
-    AF, BC, DE, HL, PC, SP,
+    AF,
+    BC,
+    DE,
+    HL,
+    PC,
+    SP,
 }
 
 impl CPURegister {
@@ -47,7 +40,7 @@ impl CPURegister {
         use CPURegister::*;
 
         let lo = oper & 0xF;
-        let regs: [CPURegister; 16] = [ B, C, D, E, H, L, HL, A, B, C, D, E, H, L, HL, A ];
+        let regs: [CPURegister; 16] = [B, C, D, E, H, L, HL, A, B, C, D, E, H, L, HL, A];
         regs[lo as usize]
     }
 }
@@ -83,7 +76,9 @@ impl CPU<'_> {
             CPURegister::F => Ok(self.AF.get_low()),
             CPURegister::H => Ok(self.HL.get_high()),
             CPURegister::L => Ok(self.HL.get_low()),
-            _ => Err(CPUError::BadRegisterWrite("Tried reading Byte from Word reg")),
+            _ => Err(CPUError::BadRegisterAccess(
+                "Tried reading Byte from Word reg",
+            )),
         }
     }
 
@@ -95,7 +90,9 @@ impl CPU<'_> {
             CPURegister::HL => Ok(self.HL.into()),
             CPURegister::SP => Ok(self.SP.into()),
             CPURegister::PC => Ok(self.PC.into()),
-            _ => Err(CPUError::BadRegisterWrite("Tried reading Word from Byte reg")),
+            _ => Err(CPUError::BadRegisterAccess(
+                "Tried reading Word from Byte reg",
+            )),
         }
     }
 
@@ -109,7 +106,9 @@ impl CPU<'_> {
             CPURegister::F => Ok(self.AF.set_low(val)),
             CPURegister::H => Ok(self.HL.set_high(val)),
             CPURegister::L => Ok(self.HL.set_low(val)),
-            _ => Err(CPUError::BadRegisterWrite("Mismatching register {reg} and value {val} width")),
+            _ => Err(CPUError::BadRegisterAccess(
+                "Mismatching register {reg} and value {val} width",
+            )),
         }
     }
 
@@ -121,30 +120,28 @@ impl CPU<'_> {
             CPURegister::HL => Ok(self.HL = val.into()),
             CPURegister::SP => Ok(self.SP = val.into()),
             CPURegister::PC => Ok(self.PC = val.into()),
-            _ => Err(CPUError::BadRegisterWrite("Mismatching register {reg} and value {val} width")),
+            _ => Err(CPUError::BadRegisterAccess(
+                "Mismatching register {reg} and value {val} width",
+            )),
         }
     }
 
-    fn add_byte(&mut self, dst_reg: CPURegister, val: u8) -> Result<(), CPUError>{
+    fn add_byte(&mut self, dst_reg: CPURegister, val: u8) -> Result<(), CPUError> {
         let reg_val = self.get_reg_byte(dst_reg)?;
         self.set_reg_byte(dst_reg, reg_val + val)
     }
 
-    fn add_word(&mut self, dst_reg: CPURegister, val: u16) -> Result<(), CPUError>{
+    fn add_word(&mut self, dst_reg: CPURegister, val: u16) -> Result<(), CPUError> {
         let reg_val = self.get_reg_word(dst_reg)?;
         self.set_reg_word(dst_reg, reg_val + val)
     }
 }
 
-impl<'a> cpu::CPU<'a> for CPU<'a>
-{
+impl<'a> cpu::CPU<'a> for CPU<'a> {
     type Addr = u16;
     type Data = u8;
 
-    fn create(
-        clock: u32,
-        bus: &'a dyn Bus<'a, Addr = u16, Data = u8>
-    ) -> Self {
+    fn create(clock: u32, bus: &'a dyn Bus<'a, Addr = u16, Data = u8>) -> Self {
         CPU {
             bus: bus,
             AF: Word::default(),
@@ -164,7 +161,8 @@ impl<'a> cpu::CPU<'a> for CPU<'a>
         ];
         let opcode = self.bus.read_byte(self.PC.into())?;
 
-        if opcode & 0x80 == 0x80 { // ADD8
+        if opcode & 0x80 == 0x80 {
+            // ADD8
             let dst_reg = CPURegister::A;
             let src_reg = CPURegister::src_from_operand(opcode);
             // FIXME: unsafe unwrap
@@ -180,7 +178,7 @@ impl<'a> cpu::CPU<'a> for CPU<'a>
 
         // Illegal instructions
         if ILLEGAL_INSTR.contains(&opcode) {
-            return Err(AddressError::IllegalInstr(self.PC.into()))
+            return Err(AddressError::IllegalInstr(self.PC.into()));
         }
 
         self.PC += 1.into();
@@ -207,7 +205,8 @@ mod tests {
         let mut vram = gameboy::RAM::<{ 8 * 1024 }>::create(0x8000);
         let mut gpu = gameboy::GPU::create(&mut vram);
         let mut bus = gameboy::Bus::create(&mut ram, &mut gpu);
-        bus.write_byte(RAM_START.into(), AB_ADD).expect("AB addition to be written to RAM");
+        bus.write_byte(RAM_START.into(), AB_ADD)
+            .expect("AB addition to be written to RAM");
         let mut cpu: gameboy_cpu::CPU = CPU::create(4194304, &bus);
 
         cpu.PC = RAM_START.into();

@@ -13,12 +13,9 @@ impl<const SIZE: usize> Addressable for RAM<SIZE> {
     type Addr = u16;
     type Data = u8;
 
-    fn read_byte(
-        &self,
-        addr: Self::Addr,
-    ) -> Result<Self::Data, AddressError<Self::Addr>> {
+    fn read_byte(&self, addr: Self::Addr) -> Result<Self::Data, AddressError<Self::Addr>> {
         if addr < self.start_addr || addr > self.end_addr {
-            return Err(AddressError::OutOfBounds(addr))
+            return Err(AddressError::OutOfBounds(addr));
         }
 
         let offset = addr - self.start_addr;
@@ -32,7 +29,7 @@ impl<const SIZE: usize> Addressable for RAM<SIZE> {
         data: Self::Data,
     ) -> Result<(), AddressError<Self::Addr>> {
         if addr < self.start_addr || addr > self.end_addr {
-            return Err(AddressError::OutOfBounds(addr))
+            return Err(AddressError::OutOfBounds(addr));
         }
 
         let offset = addr - self.start_addr;
@@ -41,7 +38,6 @@ impl<const SIZE: usize> Addressable for RAM<SIZE> {
 
         Ok(())
     }
-
 }
 
 impl<const SIZE: usize> ram::RAM for RAM<SIZE> {

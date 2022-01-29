@@ -1,17 +1,15 @@
-use crate::addressable::{Addressable, AddressError};
-use crate::timed::{Timed, CycleTime};
+use crate::addressable::{AddressError, Addressable};
 use crate::gpu;
 use crate::ram::RAM;
+use crate::timed::{CycleTime, Timed};
 
 pub struct GPU<'a> {
-    vram: &'a dyn RAM<Addr=u16, Data=u8>
+    vram: &'a dyn RAM<Addr = u16, Data = u8>,
 }
 
 impl<'a> gpu::GPU<'a> for GPU<'a> {
-    fn create(vram: &'a dyn RAM<Addr=Self::Addr, Data=Self::Data>) -> Self {
-        GPU {
-            vram,
-        }
+    fn create(vram: &'a dyn RAM<Addr = Self::Addr, Data = Self::Data>) -> Self {
+        GPU { vram }
     }
 }
 
@@ -23,12 +21,15 @@ impl<'a> Addressable for GPU<'a> {
         Ok(0)
     }
 
-    fn write_byte(&mut self, addr: Self::Addr, data: Self::Data) -> Result<(), AddressError<Self::Addr>> {
+    fn write_byte(
+        &mut self,
+        addr: Self::Addr,
+        data: Self::Data,
+    ) -> Result<(), AddressError<Self::Addr>> {
         Ok(())
     }
 }
 
 impl<'a> Timed for GPU<'a> {
-    fn catchup(&self, time: CycleTime) {
-    }
+    fn catchup(&self, time: CycleTime) {}
 }

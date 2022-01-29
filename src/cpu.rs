@@ -1,16 +1,14 @@
-use crate::bus;
 use crate::addressable::*;
+use crate::bus;
 
+use std::fmt;
 use std::fmt::{Debug, Display};
 
 pub trait CPU<'a>: Sized {
     type Addr: Debug + Display + Copy;
     type Data: Debug + Display + Copy;
 
-    fn create(
-        clock: u32,
-        bus: &'a dyn bus::Bus<'a, Addr = Self::Addr, Data = Self::Data>
-    ) -> Self;
+    fn create(clock: u32, bus: &'a dyn bus::Bus<'a, Addr = Self::Addr, Data = Self::Data>) -> Self;
 
     /// Executes the instruction at PC and returns cycles spent
     fn step(&mut self) -> Result<usize, AddressError<Self::Addr>>;
@@ -18,6 +16,22 @@ pub trait CPU<'a>: Sized {
     /// Pushes any interrupt onto the stack if any were available
     fn interrupt(&mut self) -> Option<()>;
 }
+
+#[derive(Debug)]
+pub enum CPUError {
+    BadRegisterAccess(&'static str),
+}
+
+impl fmt::Display for CPUError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use CPUError::*;
+        match self {
+            BadRegisterAccess(s) => write!(f, "Bad register access: {s}"),
+        }
+    }
+}
+
+impl std::error::Error for CPUError {}
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct Word(u16);

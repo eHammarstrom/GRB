@@ -3,24 +3,23 @@ mod timed;
 pub use addressable::*;
 pub use timed::*;
 
-mod cpu;
 mod bus;
-mod ram;
+mod cpu;
 mod gpu;
-pub use cpu::*;
+mod ram;
 pub use bus::*;
-pub use ram::*;
+pub use cpu::*;
 pub use gpu::*;
+pub use ram::*;
 
-
-mod gameboy_cpu;
 mod gameboy_bus;
-mod gameboy_ram;
+mod gameboy_cpu;
 mod gameboy_gpu;
+mod gameboy_ram;
 
 pub mod gameboy {
-    pub use crate::gameboy_cpu::*;
     pub use crate::gameboy_bus::*;
-    pub use crate::gameboy_ram::*;
+    pub use crate::gameboy_cpu::*;
     pub use crate::gameboy_gpu::*;
+    pub use crate::gameboy_ram::*;
 }
