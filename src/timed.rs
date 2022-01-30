@@ -1,11 +1,18 @@
 pub struct CycleTime {
     /// Number of cycles passed
-    num: usize,
+    num: u32,
     /// Frequency in HZ
-    frequency: u64,
+    frequency: u32,
 }
 
 impl CycleTime {
+    pub fn new(frequency: u32, cycles: u32) -> Self {
+        CycleTime {
+            num: cycles,
+            frequency,
+        }
+    }
+
     pub fn micros(&self) -> u64 {
         let us = (1000000.0 * self.num as f64) / self.frequency as f64;
         us.round() as u64
@@ -18,7 +25,7 @@ impl CycleTime {
 
 pub trait Timed {
     /// This function progresses the internal timings of a Timer
-    fn catchup(&self, time: CycleTime);
+    fn catchup(&mut self, time: CycleTime);
 }
 
 #[cfg(test)]

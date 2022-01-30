@@ -82,6 +82,7 @@ impl Instr {
     }
 }
 
+#[rustfmt::skip]
 pub const INSTRUCTION_LOOKUP: [Instr; 256] = [
     /* 0x00 */ Instr::create(Opcode::NOP    , Operand::None             , Operand::None             , 4),
     /* 0x01 */ Instr::create(Opcode::LD     , Operand::Value(Reg::BC)   , Operand::Imm16            , 12),

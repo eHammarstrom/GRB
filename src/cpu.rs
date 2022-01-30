@@ -8,13 +8,19 @@ pub trait CPU<'a>: Sized {
     type Addr: Debug + Display + Copy;
     type Data: Debug + Display + Copy;
 
-    fn create(clock: u32, bus: &'a dyn bus::Bus<'a, Addr = Self::Addr, Data = Self::Data>) -> Self;
+    fn create(
+        clock: u32,
+        bus: &'a mut dyn bus::Bus<'a, Addr = Self::Addr, Data = Self::Data>,
+    ) -> Self;
 
     /// Executes the instruction at PC and returns cycles spent
-    fn step(&mut self) -> Result<usize, AddressError<Self::Addr>>;
+    fn step(&mut self) -> Result<u32, AddressError<Self::Addr>>;
 
     /// Pushes any interrupt onto the stack if any were available
     fn interrupt(&mut self) -> Option<()>;
+
+    /// Returns the current CPU frequency
+    fn frequency(&self) -> u32;
 }
 
 #[derive(Debug)]

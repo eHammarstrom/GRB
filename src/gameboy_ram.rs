@@ -49,4 +49,8 @@ impl<const SIZE: usize> ram::RAM for RAM<SIZE> {
             mem: [0u8; SIZE],
         }
     }
+
+    fn deep_copy(&self) -> Vec<Self::Data> {
+        Vec::from(self.mem)
+    }
 }

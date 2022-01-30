@@ -11,6 +11,10 @@ impl<'a> gpu::GPU<'a> for GPU<'a> {
     fn create(vram: &'a dyn RAM<Addr = Self::Addr, Data = Self::Data>) -> Self {
         GPU { vram }
     }
+
+    fn deep_copy(&self) -> Vec<Self::Data> {
+        self.vram.deep_copy()
+    }
 }
 
 impl<'a> Addressable for GPU<'a> {
@@ -31,5 +35,5 @@ impl<'a> Addressable for GPU<'a> {
 }
 
 impl<'a> Timed for GPU<'a> {
-    fn catchup(&self, time: CycleTime) {}
+    fn catchup(&mut self, time: CycleTime) {}
 }

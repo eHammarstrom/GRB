@@ -1,9 +1,10 @@
 use crate::addressable::*;
-use crate::bus::Bus;
+use crate::bus::{Bus, CopyOf};
 use crate::cpu;
 use crate::cpu::CPUError;
 use crate::cpu::Word;
 use crate::gameboy_cpu_inst::*;
+use crate::timed::*;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Reg {
@@ -39,7 +40,7 @@ impl Reg {
 /// GameBoy CPU
 pub struct CPU<'a> {
     /// CPU bus
-    bus: &'a dyn Bus<'a, Addr = u16, Data = u8>,
+    bus: &'a mut dyn Bus<'a, Addr = u16, Data = u8>,
     /// MSB = A, LSB = Flags
     AF: Word,
     /// MSB = B, LSB = C
@@ -57,6 +58,10 @@ pub struct CPU<'a> {
 }
 
 impl CPU<'_> {
+    pub fn get_vram(&self) -> Vec<u8> {
+        self.bus.copy_of(CopyOf::VRAM)
+    }
+
     fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError> {
         match reg {
             Reg::A => Ok(self.AF.get_high()),
@@ -132,7 +137,7 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
     type Addr = u16;
     type Data = u8;
 
-    fn create(clock: u32, bus: &'a dyn Bus<'a, Addr = u16, Data = u8>) -> Self {
+    fn create(clock: u32, bus: &'a mut dyn Bus<'a, Addr = u16, Data = u8>) -> Self {
         CPU {
             bus: bus,
             AF: Word::default(),
@@ -146,7 +151,8 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
     }
 
     /// Executes the instruction at PC and returns cycles spent
-    fn step(&mut self) -> Result<usize, AddressError<Self::Addr>> {
+    fn step(&mut self) -> Result<u32, AddressError<Self::Addr>> {
+        let mut cycles = 0;
         const ILLEGAL_INSTR: [u8; 11] = [
             0xD3, 0xE3, 0xE4, 0xF4, 0xDB, 0xEB, 0xEC, 0xFC, 0xDD, 0xED, 0xFD,
         ];
@@ -174,12 +180,18 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
 
         self.PC += 1.into();
 
-        Ok(0)
+        self.bus.catchup(CycleTime::new(self.frequency(), cycles));
+
+        Ok(cycles)
     }
 
     /// Pushes any interrupt onto the stack if any were available
     fn interrupt(&mut self) -> Option<()> {
         Some(())
+    }
+
+    fn frequency(&self) -> u32 {
+        self.clock
     }
 }
 
@@ -198,7 +210,7 @@ mod tests {
         let mut bus = gameboy::Bus::create(&mut ram, &mut gpu);
         bus.write_byte(RAM_START.into(), AB_ADD)
             .expect("AB addition to be written to RAM");
-        let mut cpu: gameboy_cpu::CPU = CPU::create(4194304, &bus);
+        let mut cpu: gameboy_cpu::CPU = CPU::create(4194304, &mut bus);
 
         cpu.PC = RAM_START.into();
         cpu.BC.set_high(10);
