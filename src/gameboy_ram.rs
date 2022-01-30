@@ -2,6 +2,7 @@ use crate::addressable::{AddressError, Addressable};
 use crate::ram;
 
 // Gameboy RAM; 16-bit address space, 8-bit memory width
+#[derive(Debug)]
 pub struct RAM<const SIZE: usize> {
     /// Inclusive start and end addresses
     start_addr: u16,

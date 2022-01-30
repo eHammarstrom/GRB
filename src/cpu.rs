@@ -4,8 +4,8 @@ use crate::bus;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-pub trait CPU<'a>: Sized {
-    type Addr: Debug + Display + Copy;
+pub trait CPU<'a>: Sized + Debug {
+    type Addr: Debug + Display + Copy + fmt::UpperHex;
     type Data: Debug + Display + Copy;
 
     fn create(
@@ -14,7 +14,7 @@ pub trait CPU<'a>: Sized {
     ) -> Self;
 
     /// Executes the instruction at PC and returns cycles spent
-    fn step(&mut self) -> Result<u32, AddressError<Self::Addr>>;
+    fn step(&mut self) -> Result<u32, CPUError<'a, Self>>;
 
     /// Pushes any interrupt onto the stack if any were available
     fn interrupt(&mut self) -> Option<()>;
@@ -24,20 +24,28 @@ pub trait CPU<'a>: Sized {
 }
 
 #[derive(Debug)]
-pub enum CPUError {
+pub enum CPUError<'a, Cpu: crate::cpu::CPU<'a>> {
     BadRegisterAccess(&'static str),
+    AddrErr(AddressError<Cpu::Addr>),
 }
 
-impl fmt::Display for CPUError {
+impl<'a, Cpu: crate::cpu::CPU<'a>> From<AddressError<Cpu::Addr>> for CPUError<'a, Cpu> {
+    fn from(err: AddressError<Cpu::Addr>) -> Self {
+        CPUError::AddrErr(err)
+    }
+}
+
+impl<'a, Cpu: crate::cpu::CPU<'a>> fmt::Display for CPUError<'a, Cpu> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CPUError::*;
         match self {
             BadRegisterAccess(s) => write!(f, "Bad register access: {s}"),
+            AddrErr(addr) => write!(f, "Bad instruction access at: {addr}"),
         }
     }
 }
 
-impl std::error::Error for CPUError {}
+impl<'a, Cpu: crate::cpu::CPU<'a> + Debug> std::error::Error for CPUError<'a, Cpu> {}
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct Word(u16);

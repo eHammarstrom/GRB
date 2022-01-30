@@ -4,6 +4,7 @@ use crate::gpu::GPU;
 use crate::ram::RAM;
 use crate::timed::*;
 
+#[derive(Debug)]
 pub struct Bus<'a> {
     ram: &'a mut dyn RAM<Addr = u16, Data = u8>,
     gpu: &'a mut dyn GPU<'a, Addr = u16, Data = u8>,

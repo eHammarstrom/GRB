@@ -8,7 +8,7 @@ pub enum CopyOf {
     VRAM,
 }
 
-pub trait Bus<'a>: Addressable + Timed {
+pub trait Bus<'a>: Addressable + Timed + std::fmt::Debug {
     fn create(
         ram: &'a mut dyn RAM<Addr = Self::Addr, Data = Self::Data>,
         gpu: &'a mut dyn GPU<'a, Addr = Self::Addr, Data = Self::Data>,

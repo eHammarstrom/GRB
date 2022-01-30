@@ -1,5 +1,6 @@
 use crate::gameboy_cpu::*;
 
+#[derive(Clone, Copy, Debug)]
 pub enum Opcode {
     Invalid,
     NOP,
@@ -41,6 +42,7 @@ pub enum Opcode {
     EI,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum Operand {
     Value(Reg),
     DerefReg(Reg),
@@ -64,17 +66,18 @@ pub enum Operand {
     None,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct Instr {
-    opr: Opcode,
-    dst: Operand,
-    src: Operand,
-    cycles: usize,
+    pub opcode: Opcode,
+    pub dst: Operand,
+    pub src: Operand,
+    pub cycles: u32,
 }
 
 impl Instr {
-    const fn create(opr: Opcode, dst: Operand, src: Operand, cycles: usize) -> Self {
+    const fn create(opcode: Opcode, dst: Operand, src: Operand, cycles: u32) -> Self {
         Instr {
-            opr,
+            opcode,
             dst,
             src,
             cycles,

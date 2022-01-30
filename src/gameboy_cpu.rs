@@ -38,6 +38,7 @@ impl Reg {
 }
 
 /// GameBoy CPU
+#[derive(Debug)]
 pub struct CPU<'a> {
     /// CPU bus
     bus: &'a mut dyn Bus<'a, Addr = u16, Data = u8>,
@@ -57,12 +58,12 @@ pub struct CPU<'a> {
     clock: u32,
 }
 
-impl CPU<'_> {
+impl<'a> CPU<'a> {
     pub fn get_vram(&self) -> Vec<u8> {
         self.bus.copy_of(CopyOf::VRAM)
     }
 
-    fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError> {
+    fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError<'a, Self>> {
         match reg {
             Reg::A => Ok(self.AF.get_high()),
             Reg::B => Ok(self.BC.get_high()),
@@ -78,7 +79,7 @@ impl CPU<'_> {
         }
     }
 
-    fn get_reg_word(&mut self, reg: Reg) -> Result<u16, CPUError> {
+    fn get_reg_word(&mut self, reg: Reg) -> Result<u16, CPUError<'a, Self>> {
         match reg {
             Reg::AF => Ok(self.AF.into()),
             Reg::BC => Ok(self.BC.into()),
@@ -92,7 +93,7 @@ impl CPU<'_> {
         }
     }
 
-    fn set_reg_byte(&mut self, reg: Reg, val: u8) -> Result<(), CPUError> {
+    fn set_reg_byte(&mut self, reg: Reg, val: u8) -> Result<(), CPUError<'a, Self>> {
         match reg {
             Reg::A => Ok(self.AF.set_high(val)),
             Reg::B => Ok(self.BC.set_high(val)),
@@ -108,7 +109,7 @@ impl CPU<'_> {
         }
     }
 
-    fn set_reg_word(&mut self, reg: Reg, val: u16) -> Result<(), CPUError> {
+    fn set_reg_word(&mut self, reg: Reg, val: u16) -> Result<(), CPUError<'a, Self>> {
         match reg {
             Reg::AF => Ok(self.AF = val.into()),
             Reg::BC => Ok(self.BC = val.into()),
@@ -122,12 +123,12 @@ impl CPU<'_> {
         }
     }
 
-    fn add_byte(&mut self, dst_reg: Reg, val: u8) -> Result<(), CPUError> {
+    fn add_byte(&mut self, dst_reg: Reg, val: u8) -> Result<(), CPUError<'a, Self>> {
         let reg_val = self.get_reg_byte(dst_reg)?;
         self.set_reg_byte(dst_reg, reg_val + val)
     }
 
-    fn add_word(&mut self, dst_reg: Reg, val: u16) -> Result<(), CPUError> {
+    fn add_word(&mut self, dst_reg: Reg, val: u16) -> Result<(), CPUError<'a, Self>> {
         let reg_val = self.get_reg_word(dst_reg)?;
         self.set_reg_word(dst_reg, reg_val + val)
     }
@@ -151,38 +152,64 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
     }
 
     /// Executes the instruction at PC and returns cycles spent
-    fn step(&mut self) -> Result<u32, AddressError<Self::Addr>> {
-        let mut cycles = 0;
-        const ILLEGAL_INSTR: [u8; 11] = [
-            0xD3, 0xE3, 0xE4, 0xF4, 0xDB, 0xEB, 0xEC, 0xFC, 0xDD, 0xED, 0xFD,
-        ];
-        let opcode = self.bus.read_byte(self.PC.into())?;
+    fn step(&mut self) -> Result<u32, CPUError<'a, Self>> {
+        let opcode: u8 = self.bus.read_byte(self.PC.into())?;
+        let instruction = INSTRUCTION_LOOKUP[opcode as usize];
 
-        if opcode & 0x80 == 0x80 {
-            // ADD8
-            let dst_reg = Reg::A;
-            let src_reg = Reg::src_from_operand(opcode);
-            // FIXME: unsafe unwrap
-            let src_val = self.get_reg_byte(src_reg).unwrap();
-            self.add_byte(dst_reg, src_val).unwrap()
-        } else if opcode & 0x09 == 0x09 { // ADD16
+        match instruction.opcode {
+            Opcode::Invalid => return Err(AddressError::IllegalInstr(self.PC.into()).into()),
+            Opcode::NOP => unimplemented!(),
+            Opcode::LD => unimplemented!(),
+            Opcode::ADD => {
+                let dst_reg = match instruction.dst {
+                    Operand::Value(r) => r,
+                    _ => return Err(AddressError::IllegalInstr(self.PC.into()).into()),
+                };
+                let src_val = match instruction.src {
+                    Operand::Value(r) => self.get_reg_byte(r)?,
+                    _ => unimplemented!(),
+                };
+                self.add_byte(dst_reg, src_val)?;
+            },
+            Opcode::ADC => unimplemented!(),
+            Opcode::INC => unimplemented!(),
+            Opcode::DEC => unimplemented!(),
+            Opcode::RLCA => unimplemented!(),
+            Opcode::RRA => unimplemented!(),
+            Opcode::JR => unimplemented!(),
+            Opcode::RRCA => unimplemented!(),
+            Opcode::STOP => unimplemented!(),
+            Opcode::RLA => unimplemented!(),
+            Opcode::LDI => unimplemented!(),
+            Opcode::DAA => unimplemented!(),
+            Opcode::CPL => unimplemented!(),
+            Opcode::LDD => unimplemented!(),
+            Opcode::SCF => unimplemented!(),
+            Opcode::CCF => unimplemented!(),
+            Opcode::HALT => unimplemented!(),
+            Opcode::SUB => unimplemented!(),
+            Opcode::SBC => unimplemented!(),
+            Opcode::AND => unimplemented!(),
+            Opcode::XOR => unimplemented!(),
+            Opcode::OR => unimplemented!(),
+            Opcode::CP => unimplemented!(),
+            Opcode::RET => unimplemented!(),
+            Opcode::POP => unimplemented!(),
+            Opcode::JP => unimplemented!(),
+            Opcode::CALL => unimplemented!(),
+            Opcode::PUSH => unimplemented!(),
+            Opcode::RST => unimplemented!(),
+            Opcode::PREFIX => unimplemented!(),
+            Opcode::RETI => unimplemented!(),
+            Opcode::LDH => unimplemented!(),
+            Opcode::DI => unimplemented!(),
+            Opcode::LDHL => unimplemented!(),
+            Opcode::EI => unimplemented!(),
         }
 
-        // It's a rotation/shifting instruction
-        if opcode == 0xCB {
-            let opcode_contd = self.bus.read_byte(self.PC.into())?;
-        }
+        self.bus.catchup(CycleTime::new(self.frequency(), instruction.cycles));
 
-        // Illegal instructions
-        if ILLEGAL_INSTR.contains(&opcode) {
-            return Err(AddressError::IllegalInstr(self.PC.into()));
-        }
-
-        self.PC += 1.into();
-
-        self.bus.catchup(CycleTime::new(self.frequency(), cycles));
-
-        Ok(cycles)
+        Ok(instruction.cycles)
     }
 
     /// Pushes any interrupt onto the stack if any were available

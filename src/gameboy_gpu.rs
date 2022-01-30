@@ -3,6 +3,7 @@ use crate::gpu;
 use crate::ram::RAM;
 use crate::timed::{CycleTime, Timed};
 
+#[derive(Debug)]
 pub struct GPU<'a> {
     vram: &'a dyn RAM<Addr = u16, Data = u8>,
 }
