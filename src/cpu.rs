@@ -59,12 +59,27 @@ impl Word {
         self.0 = self.0 & 0xFF00 | (b as u16);
     }
 
-    pub fn get_high(&mut self) -> u8 {
+    pub fn get_high(&self) -> u8 {
         (self.0 >> 8) as u8
     }
 
-    pub fn get_low(&mut self) -> u8 {
+    pub fn get_low(&self) -> u8 {
         (self.0 & 0xFF) as u8
+    }
+
+    pub fn set_bit(&mut self, bit: u8) {
+        assert!(bit < 16);
+        self.0 |= 1 << bit;
+    }
+
+    pub fn unset_bit(&mut self, bit: u8) {
+        assert!(bit < 16);
+        self.0 &= !(1 << bit);
+    }
+
+    pub fn get_bit(&self, bit: u8) -> u16 {
+        assert!(bit < 16);
+        self.0 & 1 << bit
     }
 }
 

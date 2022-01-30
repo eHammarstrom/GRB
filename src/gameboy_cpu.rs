@@ -37,6 +37,37 @@ impl Reg {
     }
 }
 
+/// CPU Flag register flags
+enum Flag {
+    /// Z (Zero) is set if the result of an operation is 0
+    Z,
+    /// C or Cy (Carry) is set if one of the following cases occur,
+    /// * 8-bit addition overflow
+    /// * 16-bit addition overflow
+    /// * Subtraction or comparison is less than 0
+    /// * Rotate or Shift pushes out a "1" bit
+    C,
+    /// N is set if the last operation was a subtraction
+    N,
+    /// H (Half-Carry) is set if a 8-bit addition 4-bit overflows
+    H,
+}
+
+impl Flag {
+    const fn bit(self) -> u8 {
+        match self {
+            Self::Z => 7,
+            Self::C => 6,
+            Self::N => 5,
+            Self::H => 4,
+        }
+    }
+
+    const fn mask(self) -> u8 {
+        1 << self.bit()
+    }
+}
+
 /// GameBoy CPU
 #[derive(Debug)]
 pub struct CPU<'a> {
@@ -59,6 +90,10 @@ pub struct CPU<'a> {
 }
 
 impl<'a> CPU<'a> {
+    const U4MAX: u8 = 0xF; // 4-bit overflow limit
+    const U8MAX: u8 = u8::MAX; // 8-bit overflow limit
+    const U16MAX: u16 = u16::MAX; // 16-bit overflow limit
+
     pub fn get_vram(&self) -> Vec<u8> {
         self.bus.copy_of(CopyOf::VRAM)
     }
@@ -122,16 +157,6 @@ impl<'a> CPU<'a> {
             )),
         }
     }
-
-    fn add_byte(&mut self, dst_reg: Reg, val: u8) -> Result<(), CPUError<'a, Self>> {
-        let reg_val = self.get_reg_byte(dst_reg)?;
-        self.set_reg_byte(dst_reg, reg_val + val)
-    }
-
-    fn add_word(&mut self, dst_reg: Reg, val: u16) -> Result<(), CPUError<'a, Self>> {
-        let reg_val = self.get_reg_word(dst_reg)?;
-        self.set_reg_word(dst_reg, reg_val + val)
-    }
 }
 
 impl<'a> cpu::CPU<'a> for CPU<'a> {
@@ -153,24 +178,44 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
 
     /// Executes the instruction at PC and returns cycles spent
     fn step(&mut self) -> Result<u32, CPUError<'a, Self>> {
-        let opcode: u8 = self.bus.read_byte(self.PC.into())?;
+        let instr_pc: u16 = self.PC.into();
+        let opcode: u8 = self.bus.read_byte(instr_pc)?;
         let instruction = INSTRUCTION_LOOKUP[opcode as usize];
 
+        self.PC += 1.into();
+
         match instruction.opcode {
-            Opcode::Invalid => return Err(AddressError::IllegalInstr(self.PC.into()).into()),
+            Opcode::Invalid => return Err(AddressError::IllegalInstr(instr_pc).into()),
             Opcode::NOP => unimplemented!(),
             Opcode::LD => unimplemented!(),
             Opcode::ADD => {
                 let dst_reg = match instruction.dst {
                     Operand::Value(r) => r,
-                    _ => return Err(AddressError::IllegalInstr(self.PC.into()).into()),
+                    _ => return Err(AddressError::IllegalInstr(instr_pc).into()),
                 };
+                let dst_val = self.get_reg_byte(dst_reg)?;
                 let src_val = match instruction.src {
                     Operand::Value(r) => self.get_reg_byte(r)?,
                     _ => unimplemented!(),
                 };
-                self.add_byte(dst_reg, src_val)?;
-            },
+                let h_overflow = dst_val <= CPU::U4MAX && dst_val > CPU::U4MAX - src_val;
+                let c_overflow = dst_val <= CPU::U8MAX && dst_val > CPU::U8MAX - src_val;
+
+                if h_overflow {
+                    // 4-bit overflow
+                    self.AF.set_bit(Flag::H.bit());
+                }
+                if c_overflow {
+                    // 8-bit overflow
+                    self.AF.set_bit(Flag::C.bit());
+                }
+                self.set_reg_byte(dst_reg, dst_val.wrapping_add(src_val))?;
+                if self.get_reg_byte(dst_reg)? == 0 {
+                    // Result was Zero
+                    self.AF.set_bit(Flag::Z.bit());
+                }
+                self.AF.unset_bit(Flag::N.bit());
+            }
             Opcode::ADC => unimplemented!(),
             Opcode::INC => unimplemented!(),
             Opcode::DEC => unimplemented!(),
@@ -207,7 +252,8 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
             Opcode::EI => unimplemented!(),
         }
 
-        self.bus.catchup(CycleTime::new(self.frequency(), instruction.cycles));
+        self.bus
+            .catchup(CycleTime::new(self.frequency(), instruction.cycles));
 
         Ok(instruction.cycles)
     }
@@ -228,6 +274,8 @@ mod tests {
 
     #[test]
     fn test_cpu_add8() {
+        use gameboy_cpu::Flag;
+
         const RAM_START: u16 = 0xC000;
         const AB_ADD: u8 = 0x80;
 
@@ -235,15 +283,55 @@ mod tests {
         let mut vram = gameboy::RAM::<{ 8 * 1024 }>::create(0x8000);
         let mut gpu = gameboy::GPU::create(&mut vram);
         let mut bus = gameboy::Bus::create(&mut ram, &mut gpu);
-        bus.write_byte(RAM_START.into(), AB_ADD)
+
+        bus.write_byte(RAM_START, AB_ADD)
             .expect("AB addition to be written to RAM");
+        bus.write_byte(RAM_START + 1, AB_ADD)
+            .expect("AB addition to be written to RAM");
+        bus.write_byte(RAM_START + 2, AB_ADD)
+            .expect("AB addition to be written to RAM");
+
         let mut cpu: gameboy_cpu::CPU = CPU::create(4194304, &mut bus);
 
         cpu.PC = RAM_START.into();
         cpu.BC.set_high(10);
 
+        // Set the "Subtraction flag before we perform the addition
+        cpu.AF.set_low(Flag::N.mask());
+
+        // Assert that we have set the subtraction flag N
+        assert_eq!(cpu.AF.get_low() & Flag::N.mask(), Flag::N.mask());
+
         cpu.step().expect("CPU to step once");
 
+        // Assert our addition into register A (0) from B (10)
         assert_eq!(cpu.AF.get_high(), 10);
+        // Assert that the subtraction flag has been reset after addition
+        assert_ne!(cpu.AF.get_low() & Flag::N.mask(), Flag::N.mask());
+
+        // Assert that PC has moved after addition
+        assert_eq!(u16::from(cpu.PC), RAM_START + 1);
+
+        // Assert that we did not 4-bit overflow by checking flag H
+        assert_ne!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
+
+        cpu.step().expect("CPU to step twice");
+
+        // Assert that we did 4-bit overflow by checking flag H
+        assert_eq!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
+        // Assert our second addition into register A (10) from B (10)
+        assert_eq!(cpu.AF.get_high(), 20);
+        // Assert that we did NOT 8-bit overflow by checking flag C
+        assert_ne!(cpu.AF.get_low() & Flag::C.mask(), Flag::C.mask());
+
+        cpu.BC.set_high(236); // FIXME: Use LD
+        cpu.step().expect("CPU to step thrice");
+
+        // Assert our third addition into register A (20) from B (236)
+        assert_eq!(cpu.AF.get_high(), 0);
+        // Assert that we did an 8-bit overflow by checking flag C
+        assert_eq!(cpu.AF.get_low() & Flag::C.mask(), Flag::C.mask());
+        // Assert that we did hit Zero by checking flag Z
+        assert_eq!(cpu.AF.get_low() & Flag::Z.mask(), Flag::Z.mask());
     }
 }
