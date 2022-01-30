@@ -26,17 +26,6 @@ pub enum Reg {
     SP,
 }
 
-impl Reg {
-    // FIXME: Create matrix (https://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html) instead
-    fn src_from_operand(oper: u8) -> Self {
-        use Reg::*;
-
-        let lo = oper & 0xF;
-        let regs: [Reg; 16] = [B, C, D, E, H, L, HL, A, B, C, D, E, H, L, HL, A];
-        regs[lo as usize]
-    }
-}
-
 /// CPU Flag register flags
 enum Flag {
     /// Z (Zero) is set if the result of an operation is 0
