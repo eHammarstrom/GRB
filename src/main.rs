@@ -11,11 +11,11 @@ enum GUIData {
 
 // Gameboy EMU
 fn main() {
-    let mut ram = gameboy::RAM::<{ 8 * 1024 }>::create(0xC000);
-    let mut vram = gameboy::RAM::<{ 8 * 1024 }>::create(0x8000);
-    let mut gpu = gameboy::GPU::create(&mut vram);
-    let mut bus = gameboy::Bus::create(&mut ram, &mut gpu);
-    let mut cpu = gameboy::CPU::create(4194304, &mut bus);
+    let ram = Box::new(gameboy::RAM::<{ 8 * 1024 }>::create(0xC000));
+    let vram = Box::new(gameboy::RAM::<{ 8 * 1024 }>::create(0x8000));
+    let gpu = Box::new(gameboy::GPU::create(vram));
+    let bus = Box::new(gameboy::Bus::create(ram, gpu));
+    let mut cpu = gameboy::CPU::create(4194304, bus);
 
     let (tx, rx): (Sender<GUIData>, Receiver<GUIData>) = mpsc::channel();
 
@@ -39,8 +39,7 @@ fn main() {
         dbg!(cycles);
 
         // Send vram to GUI thread
-        let vram = cpu.get_vram();
-        tx.send(GUIData::VRAMBuf(vram)).unwrap();
+        tx.send(GUIData::VRAMBuf(vec![0x00])).unwrap();
     }
 
     tx.send(GUIData::Shutdown).unwrap();

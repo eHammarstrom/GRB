@@ -59,9 +59,9 @@ impl Flag {
 
 /// GameBoy CPU
 #[derive(Debug)]
-pub struct CPU<'a> {
+pub struct CPU {
     /// CPU bus
-    bus: &'a mut dyn Bus<'a, Addr = u16, Data = u8>,
+    bus: Box<dyn Bus<Addr = u16, Data = u8>>,
     /// MSB = A, LSB = Flags
     AF: Word,
     /// MSB = B, LSB = C
@@ -78,16 +78,19 @@ pub struct CPU<'a> {
     clock: u32,
 }
 
-impl<'a> CPU<'a> {
+impl CPU {
     const U4MAX: u8 = 0xF; // 4-bit overflow limit
     const U8MAX: u8 = u8::MAX; // 8-bit overflow limit
     const U16MAX: u16 = u16::MAX; // 16-bit overflow limit
 
-    pub fn get_vram(&self) -> Vec<u8> {
-        self.bus.copy_of(CopyOf::VRAM)
+    pub fn bus_apply<FUN>(&mut self,
+        f: FUN)
+        where FUN: Fn(&mut dyn Bus<Addr = <CPU as cpu::CPU>::Addr, Data = <CPU as cpu::CPU>::Data>)
+    {
+        f(&mut *self.bus)
     }
 
-    fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError<'a, Self>> {
+    fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError<Self>> {
         match reg {
             Reg::A => Ok(self.AF.get_high()),
             Reg::B => Ok(self.BC.get_high()),
@@ -103,7 +106,7 @@ impl<'a> CPU<'a> {
         }
     }
 
-    fn get_reg_word(&mut self, reg: Reg) -> Result<u16, CPUError<'a, Self>> {
+    fn get_reg_word(&mut self, reg: Reg) -> Result<u16, CPUError<Self>> {
         match reg {
             Reg::AF => Ok(self.AF.into()),
             Reg::BC => Ok(self.BC.into()),
@@ -117,7 +120,7 @@ impl<'a> CPU<'a> {
         }
     }
 
-    fn set_reg_byte(&mut self, reg: Reg, val: u8) -> Result<(), CPUError<'a, Self>> {
+    fn set_reg_byte(&mut self, reg: Reg, val: u8) -> Result<(), CPUError<Self>> {
         match reg {
             Reg::A => Ok(self.AF.set_high(val)),
             Reg::B => Ok(self.BC.set_high(val)),
@@ -133,7 +136,7 @@ impl<'a> CPU<'a> {
         }
     }
 
-    fn set_reg_word(&mut self, reg: Reg, val: u16) -> Result<(), CPUError<'a, Self>> {
+    fn set_reg_word(&mut self, reg: Reg, val: u16) -> Result<(), CPUError<Self>> {
         match reg {
             Reg::AF => Ok(self.AF = val.into()),
             Reg::BC => Ok(self.BC = val.into()),
@@ -148,11 +151,11 @@ impl<'a> CPU<'a> {
     }
 }
 
-impl<'a> cpu::CPU<'a> for CPU<'a> {
+impl cpu::CPU for CPU {
     type Addr = u16;
     type Data = u8;
 
-    fn create(clock: u32, bus: &'a mut dyn Bus<'a, Addr = u16, Data = u8>) -> Self {
+    fn create(clock: u32, bus: Box<dyn Bus<Addr = u16, Data = u8>>) -> Self {
         CPU {
             bus: bus,
             AF: Word::default(),
@@ -166,7 +169,7 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
     }
 
     /// Executes the instruction at PC and returns cycles spent
-    fn step(&mut self) -> Result<u32, CPUError<'a, Self>> {
+    fn step(&mut self) -> Result<u32, CPUError<Self>> {
         let instr_pc: u16 = self.PC.into();
         let opcode: u8 = self.bus.read_byte(instr_pc)?;
         let instruction = INSTRUCTION_LOOKUP[opcode as usize];
@@ -260,27 +263,35 @@ impl<'a> cpu::CPU<'a> for CPU<'a> {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use gameboy_cpu::Flag;
+
+    const RAM_START: u16 = 0xC000;
+    const RAM_SIZE: usize = 8 * 1024;
+    const VRAM_START: u16 = 0x8000;
+    const VRAM_SIZE: usize = 8 * 1024;
+
+    fn setup_gameboy() -> gameboy_cpu::CPU {
+        let ram = Box::new(gameboy::RAM::<RAM_SIZE>::create(RAM_START));
+        let vram = Box::new(gameboy::RAM::<VRAM_SIZE>::create(VRAM_START));
+        let gpu = Box::new(gameboy::GPU::create(vram));
+        let bus = Box::new(gameboy::Bus::create(ram, gpu));
+        gameboy::CPU::create(4194304, bus)
+    }
 
     #[test]
-    fn test_cpu_add8() {
-        use gameboy_cpu::Flag;
+    fn test_cpu_ADD() {
+        let mut cpu = setup_gameboy();
 
-        const RAM_START: u16 = 0xC000;
-        const AB_ADD: u8 = 0x80;
+        cpu.bus_apply(|bus| {
+            const AB_ADD: u8 = 0x80;
 
-        let mut ram = gameboy::RAM::<{ 8 * 1024 }>::create(RAM_START);
-        let mut vram = gameboy::RAM::<{ 8 * 1024 }>::create(0x8000);
-        let mut gpu = gameboy::GPU::create(&mut vram);
-        let mut bus = gameboy::Bus::create(&mut ram, &mut gpu);
-
-        bus.write_byte(RAM_START, AB_ADD)
-            .expect("AB addition to be written to RAM");
-        bus.write_byte(RAM_START + 1, AB_ADD)
-            .expect("AB addition to be written to RAM");
-        bus.write_byte(RAM_START + 2, AB_ADD)
-            .expect("AB addition to be written to RAM");
-
-        let mut cpu: gameboy_cpu::CPU = CPU::create(4194304, &mut bus);
+            bus.write_byte(RAM_START, AB_ADD)
+                .expect("AB addition to be written to RAM");
+            bus.write_byte(RAM_START + 1, AB_ADD)
+                .expect("AB addition to be written to RAM");
+            bus.write_byte(RAM_START + 2, AB_ADD)
+                .expect("AB addition to be written to RAM");
+        });
 
         cpu.PC = RAM_START.into();
         cpu.BC.set_high(10);

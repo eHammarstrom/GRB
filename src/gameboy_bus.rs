@@ -5,12 +5,12 @@ use crate::ram::RAM;
 use crate::timed::*;
 
 #[derive(Debug)]
-pub struct Bus<'a> {
-    ram: &'a mut dyn RAM<Addr = u16, Data = u8>,
-    gpu: &'a mut dyn GPU<'a, Addr = u16, Data = u8>,
+pub struct Bus {
+    ram: Box<dyn RAM<Addr = u16, Data = u8>>,
+    gpu: Box<dyn GPU<Addr = u16, Data = u8>>,
 }
 
-impl<'a> Addressable for Bus<'a> {
+impl Addressable for Bus {
     type Addr = u16;
     type Data = u8;
 
@@ -29,17 +29,17 @@ impl<'a> Addressable for Bus<'a> {
     }
 }
 
-impl<'a> Timed for Bus<'a> {
+impl Timed for Bus {
     fn catchup(&mut self, time: CycleTime) {
         self.gpu.catchup(time);
         // TODO: self.timer.catchup(time);
     }
 }
 
-impl<'a> bus::Bus<'a> for Bus<'a> {
+impl bus::Bus for Bus {
     fn create(
-        ram: &'a mut dyn RAM<Addr = Self::Addr, Data = Self::Data>,
-        gpu: &'a mut dyn GPU<'a, Addr = Self::Addr, Data = Self::Data>,
+        ram: Box<dyn RAM<Addr = Self::Addr, Data = Self::Data>>,
+        gpu: Box<dyn GPU<Addr = Self::Addr, Data = Self::Data>>,
     ) -> Self {
         Bus { ram, gpu }
     }

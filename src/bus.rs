@@ -8,10 +8,10 @@ pub enum CopyOf {
     VRAM,
 }
 
-pub trait Bus<'a>: Addressable + Timed + std::fmt::Debug {
+pub trait Bus: Addressable + Timed + std::fmt::Debug {
     fn create(
-        ram: &'a mut dyn RAM<Addr = Self::Addr, Data = Self::Data>,
-        gpu: &'a mut dyn GPU<'a, Addr = Self::Addr, Data = Self::Data>,
+        ram: Box<dyn RAM<Addr = Self::Addr, Data = Self::Data>>,
+        gpu: Box<dyn GPU<Addr = Self::Addr, Data = Self::Data>>,
     ) -> Self
     where
         Self: Sized;
