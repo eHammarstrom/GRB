@@ -1,4 +1,5 @@
 use crate::gameboy_cpu::*;
+use crate::cpu;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Opcode {

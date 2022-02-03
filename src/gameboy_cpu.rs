@@ -6,6 +6,8 @@ use crate::cpu::Word;
 use crate::gameboy_cpu_inst::*;
 use crate::timed::*;
 
+use either::*;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Reg {
     /// 8-bit registers
@@ -90,7 +92,7 @@ impl CPU {
         f(&mut *self.bus)
     }
 
-    fn get_reg_byte(&mut self, reg: Reg) -> Result<u8, CPUError<Self>> {
+    fn get_reg_byte(&self, reg: Reg) -> Result<u8, CPUError<Self>> {
         match reg {
             Reg::A => Ok(self.AF.get_high()),
             Reg::B => Ok(self.BC.get_high()),
@@ -106,7 +108,7 @@ impl CPU {
         }
     }
 
-    fn get_reg_word(&mut self, reg: Reg) -> Result<u16, CPUError<Self>> {
+    fn get_reg_word(&self, reg: Reg) -> Result<u16, CPUError<Self>> {
         match reg {
             Reg::AF => Ok(self.AF.into()),
             Reg::BC => Ok(self.BC.into()),
@@ -149,6 +151,55 @@ impl CPU {
             )),
         }
     }
+
+    /// Retrieve either a Byte or a Word from a Reg
+    fn get_reg_value(&self, r: Reg) -> Either<u8, u16> {
+        match (self.get_reg_byte(r), self.get_reg_word(r)) {
+            (Ok(byte), _) => Either::Left(byte),
+            (_, Ok(word)) => Either::Right(word),
+            _ => panic!("Tried to retrieve value from bad CPU register"),
+        }
+    }
+
+    /// Expect operand to resolve to a Reg
+    fn operand_to_reg(&self, oper: Operand) -> Result<Reg, CPUError<Self>> {
+        match oper {
+            Operand::Value(r) => Ok(r),
+            _ => Err(CPUError::BadRegisterAccess("Failed to retrieve Reg from Operand {}"))
+        }
+    }
+
+    /// Resolve operand to either a Byte or a Word
+    fn operand_to_value(&self, oper: Operand) -> Result<Either<u8, u16>, CPUError<Self>> {
+        match oper {
+            Operand::Value(r) => Ok(self.get_reg_value(r)),
+            Operand::DerefReg(r) => {
+                let addr = match self.get_reg_value(r) {
+                    Either::Left(byte) => byte as u16,
+                    Either::Right(word) => word,
+                };
+
+                Ok(Either::Left(self.bus.read_byte(addr)?))
+            }
+            _ => Err(CPUError::BadRegisterAccess("Failed to retrieve value from operand register: {r}"))
+        }
+    }
+
+    /// Expect operand to resolve to a Byte
+    fn operand_to_byte(&self, oper: Operand) -> Result<u8, CPUError<Self>> {
+        self
+            .operand_to_value(oper)?
+            .left()
+            .ok_or(CPUError::AddrErr(AddressError::IllegalInstr(self.PC.into())))
+    }
+
+    /// Expect operand to resolve to a Word
+    fn operand_to_word(&self, oper: Operand) -> Result<u16, CPUError<Self>> {
+        self
+            .operand_to_value(oper)?
+            .right()
+            .ok_or(CPUError::AddrErr(AddressError::IllegalInstr(self.PC.into())))
+    }
 }
 
 impl cpu::CPU for CPU {
@@ -174,22 +225,15 @@ impl cpu::CPU for CPU {
         let opcode: u8 = self.bus.read_byte(instr_pc)?;
         let instruction = INSTRUCTION_LOOKUP[opcode as usize];
 
-        self.PC += 1.into();
-
         match instruction.opcode {
             Opcode::Invalid => return Err(AddressError::IllegalInstr(instr_pc).into()),
-            Opcode::NOP => unimplemented!(),
+            Opcode::NOP => self.PC += 1.into(),
             Opcode::LD => unimplemented!(),
             Opcode::ADD => {
-                let dst_reg = match instruction.dst {
-                    Operand::Value(r) => r,
-                    _ => return Err(AddressError::IllegalInstr(instr_pc).into()),
-                };
-                let dst_val = self.get_reg_byte(dst_reg)?;
-                let src_val = match instruction.src {
-                    Operand::Value(r) => self.get_reg_byte(r)?,
-                    _ => unimplemented!(),
-                };
+                let dst_val = self.operand_to_byte(instruction.dst)?;
+                let dst_reg = self.operand_to_reg(instruction.dst)?;
+                let src_val = self.operand_to_byte(instruction.src)?;
+
                 let h_overflow = dst_val <= CPU::U4MAX && dst_val > CPU::U4MAX - src_val;
                 let c_overflow = dst_val <= CPU::U8MAX && dst_val > CPU::U8MAX - src_val;
 
@@ -207,6 +251,8 @@ impl cpu::CPU for CPU {
                     self.AF.set_bit(Flag::Z.bit());
                 }
                 self.AF.unset_bit(Flag::N.bit());
+
+                self.PC += 1.into();
             }
             Opcode::ADC => unimplemented!(),
             Opcode::INC => unimplemented!(),
@@ -270,17 +316,19 @@ mod tests {
     const VRAM_START: u16 = 0x8000;
     const VRAM_SIZE: usize = 8 * 1024;
 
-    fn setup_gameboy() -> gameboy_cpu::CPU {
+    fn setup_gameboy(pc: u16) -> gameboy_cpu::CPU {
         let ram = Box::new(gameboy::RAM::<RAM_SIZE>::create(RAM_START));
         let vram = Box::new(gameboy::RAM::<VRAM_SIZE>::create(VRAM_START));
         let gpu = Box::new(gameboy::GPU::create(vram));
         let bus = Box::new(gameboy::Bus::create(ram, gpu));
-        gameboy::CPU::create(4194304, bus)
+        let mut cpu = gameboy::CPU::create(4194304, bus);
+        cpu.PC = pc.into();
+        cpu
     }
 
     #[test]
     fn test_cpu_ADD() {
-        let mut cpu = setup_gameboy();
+        let mut cpu = setup_gameboy(RAM_START);
 
         cpu.bus_apply(|bus| {
             const AB_ADD: u8 = 0x80;
@@ -293,7 +341,6 @@ mod tests {
                 .expect("AB addition to be written to RAM");
         });
 
-        cpu.PC = RAM_START.into();
         cpu.BC.set_high(10);
 
         // Set the "Subtraction flag before we perform the addition
@@ -333,5 +380,19 @@ mod tests {
         assert_eq!(cpu.AF.get_low() & Flag::C.mask(), Flag::C.mask());
         // Assert that we did hit Zero by checking flag Z
         assert_eq!(cpu.AF.get_low() & Flag::Z.mask(), Flag::Z.mask());
+    }
+
+    #[test]
+    fn test_cpu_NOP() {
+        let mut cpu = setup_gameboy(RAM_START);
+
+        // Since RAM is zeroed we should be able to step through NOP instructions
+        let prev_pc = cpu.PC;
+        cpu.step().expect("nop step");
+        assert_eq!(prev_pc + 1.into(), cpu.PC);
+        cpu.step().expect("nop step");
+        cpu.step().expect("nop step");
+        cpu.step().expect("nop step");
+        assert_eq!(prev_pc + 4.into(), cpu.PC);
     }
 }

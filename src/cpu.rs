@@ -100,3 +100,10 @@ impl std::ops::AddAssign for Word {
         self.0 += rhs.0
     }
 }
+
+impl std::ops::Add for Word {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        (self.0 + rhs.0).into()
+    }
+}
