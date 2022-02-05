@@ -6,6 +6,8 @@ use crate::cpu::Word;
 use crate::gameboy_cpu_inst::*;
 use crate::timed::*;
 
+use std::{cmp, ops};
+
 use either::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -80,14 +82,24 @@ pub struct CPU {
     clock: u32,
 }
 
-impl CPU {
-    const U4MAX: u8 = 0xF; // 4-bit overflow limit
-    const U8MAX: u8 = u8::MAX; // 8-bit overflow limit
-    const U16MAX: u16 = u16::MAX; // 16-bit overflow limit
+fn check_overflow<T>(dst: T, src: T, overflow_mask: T) -> bool
+where
+    T: cmp::PartialOrd + ops::Sub<Output = T>,
+{
+    dst <= overflow_mask && src >= overflow_mask
+        || dst <= overflow_mask && dst > overflow_mask - src
+}
 
-    pub fn bus_apply<FUN>(&mut self,
-        f: FUN)
-        where FUN: Fn(&mut dyn Bus<Addr = <CPU as cpu::CPU>::Addr, Data = <CPU as cpu::CPU>::Data>)
+impl CPU {
+    // According to http://marc.rawer.de/Gameboy/Docs/GBCPUman.pdf
+    const U4MAX: u8 = 0xF; // 4-bit overflow limit (8-bit Half-Carry)
+    const U8MAX: u8 = u8::MAX; // 8-bit overflow limit (8-bit Carry)
+    const U12MAX: u16 = 0x0FFF; // 12-bit overflow limit (16-bit Half-Carry)
+    const U16MAX: u16 = u16::MAX; // 16-bit overflow limit (16-bit Carry)
+
+    pub fn bus_apply<FUN>(&mut self, f: FUN)
+    where
+        FUN: Fn(&mut dyn Bus<Addr = <CPU as cpu::CPU>::Addr, Data = <CPU as cpu::CPU>::Data>),
     {
         f(&mut *self.bus)
     }
@@ -165,12 +177,19 @@ impl CPU {
     fn operand_to_reg(&self, oper: Operand) -> Result<Reg, CPUError<Self>> {
         match oper {
             Operand::Value(r) => Ok(r),
-            _ => Err(CPUError::BadRegisterAccess("Failed to retrieve Reg from Operand {}"))
+            _ => Err(CPUError::BadRegisterAccess(
+                "Failed to retrieve Reg from Operand {}",
+            )),
         }
     }
 
-    /// Resolve operand to either a Byte or a Word
-    fn operand_to_value(&self, oper: Operand) -> Result<Either<u8, u16>, CPUError<Self>> {
+    /// Resolve operand to either a Byte or a Word given the current PC
+    /// PC is needed if the instruction spans several bytes
+    fn operand_to_value(
+        &self,
+        oper: Operand,
+        instr_pc: Word,
+    ) -> Result<Either<u8, u16>, CPUError<Self>> {
         match oper {
             Operand::Value(r) => Ok(self.get_reg_value(r)),
             Operand::DerefReg(r) => {
@@ -181,24 +200,48 @@ impl CPU {
 
                 Ok(Either::Left(self.bus.read_byte(addr)?))
             }
-            _ => Err(CPUError::BadRegisterAccess("Failed to retrieve value from operand register: {r}"))
+            Operand::Imm8 => {
+                let imm_addr = u16::from(instr_pc + Word::from(1u8));
+                Ok(Either::Left(self.bus.read_byte(imm_addr)?))
+            }
+            Operand::DerefImm8 => {
+                // NOTE: DerefImm8 is a special case of an Imm8 that is always
+                // offset by 0xFF00, i.e. the Imm8 will take the place of the
+                // lower byte of 0xFF00.
+                let fixed_offset: u16 = 0xFF00;
+                let derefimm8_addr = u16::from(instr_pc + Word::from(1u8));
+                let derefimm8 = self.bus.read_byte(derefimm8_addr)? as u16;
+                Ok(Either::Left(self.bus.read_byte(fixed_offset | derefimm8)?))
+            }
+            Operand::Imm16 => {
+                let imm_addr_upper = u16::from(instr_pc + Word::from(1u8));
+                let imm_addr_lower = u16::from(instr_pc + Word::from(2u8));
+                let upper_byte = self.bus.read_byte(imm_addr_upper)? as u16;
+                let lower_byte = self.bus.read_byte(imm_addr_lower)? as u16;
+                Ok(Either::Right(upper_byte << 8 | lower_byte))
+            }
+            _ => Err(CPUError::BadRegisterAccess(
+                "Failed to retrieve value from operand register: {r}",
+            )),
         }
     }
 
     /// Expect operand to resolve to a Byte
-    fn operand_to_byte(&self, oper: Operand) -> Result<u8, CPUError<Self>> {
-        self
-            .operand_to_value(oper)?
+    fn operand_to_byte(&self, oper: Operand, instr_pc: Word) -> Result<u8, CPUError<Self>> {
+        self.operand_to_value(oper, instr_pc)?
             .left()
-            .ok_or(CPUError::AddrErr(AddressError::IllegalInstr(self.PC.into())))
+            .ok_or(CPUError::AddrErr(AddressError::IllegalInstr(
+                self.PC.into(),
+            )))
     }
 
     /// Expect operand to resolve to a Word
-    fn operand_to_word(&self, oper: Operand) -> Result<u16, CPUError<Self>> {
-        self
-            .operand_to_value(oper)?
+    fn operand_to_word(&self, oper: Operand, instr_pc: Word) -> Result<u16, CPUError<Self>> {
+        self.operand_to_value(oper, instr_pc)?
             .right()
-            .ok_or(CPUError::AddrErr(AddressError::IllegalInstr(self.PC.into())))
+            .ok_or(CPUError::AddrErr(AddressError::IllegalInstr(
+                self.PC.into(),
+            )))
     }
 }
 
@@ -227,32 +270,56 @@ impl cpu::CPU for CPU {
 
         match instruction.opcode {
             Opcode::Invalid => return Err(AddressError::IllegalInstr(instr_pc).into()),
-            Opcode::NOP => self.PC += 1.into(),
+            Opcode::NOP => self.PC += Word::from(1u8),
             Opcode::LD => unimplemented!(),
             Opcode::ADD => {
-                let dst_val = self.operand_to_byte(instruction.dst)?;
-                let dst_reg = self.operand_to_reg(instruction.dst)?;
-                let src_val = self.operand_to_byte(instruction.src)?;
+                // We expect DST to be a Reg since there is no ADD instruction
+                // with anything other than a Reg as the dst
+                let dst_reg = self
+                    .operand_to_reg(instruction.dst)
+                    .expect("ADD dst operand to be a register");
 
-                let h_overflow = dst_val <= CPU::U4MAX && dst_val > CPU::U4MAX - src_val;
-                let c_overflow = dst_val <= CPU::U8MAX && dst_val > CPU::U8MAX - src_val;
-
-                if h_overflow {
-                    // 4-bit overflow
-                    self.AF.set_bit(Flag::H.bit());
-                }
-                if c_overflow {
-                    // 8-bit overflow
-                    self.AF.set_bit(Flag::C.bit());
-                }
-                self.set_reg_byte(dst_reg, dst_val.wrapping_add(src_val))?;
-                if self.get_reg_byte(dst_reg)? == 0 {
-                    // Result was Zero
-                    self.AF.set_bit(Flag::Z.bit());
-                }
+                // Clear carries
+                self.AF.unset_bit(Flag::H.bit());
+                self.AF.unset_bit(Flag::C.bit());
+                // Always clear SUB flag if addition was performed
                 self.AF.unset_bit(Flag::N.bit());
 
-                self.PC += 1.into();
+                match self.operand_to_value(instruction.dst, self.PC)? {
+                    Either::Left(dst_byte) => {
+                        let src_val = self.operand_to_byte(instruction.src, self.PC)?;
+
+                        if check_overflow(dst_byte, src_val, CPU::U4MAX) {
+                            self.AF.set_bit(Flag::H.bit());
+                        }
+                        if check_overflow(dst_byte, src_val, CPU::U8MAX) {
+                            self.AF.set_bit(Flag::C.bit());
+                        }
+
+                        self.set_reg_byte(dst_reg, dst_byte.wrapping_add(src_val))?;
+                    }
+                    Either::Right(dst_word) => {
+                        let src_val = self.operand_to_word(instruction.src, self.PC)?;
+
+                        if check_overflow(dst_word, src_val, CPU::U12MAX) {
+                            self.AF.set_bit(Flag::H.bit());
+                        }
+                        if check_overflow(dst_word, src_val, CPU::U16MAX) {
+                            self.AF.set_bit(Flag::C.bit());
+                        }
+
+                        self.set_reg_word(dst_reg, dst_word.wrapping_add(src_val))?;
+                    }
+                }
+
+                // Check if result was Zero
+                match self.get_reg_value(dst_reg) {
+                    Either::Left(b) if b == 0 => self.AF.set_bit(Flag::Z.bit()),
+                    Either::Right(w) if w == 0 => self.AF.set_bit(Flag::Z.bit()),
+                    _ => (),
+                }
+
+                self.PC += Word::from(instruction.width);
             }
             Opcode::ADC => unimplemented!(),
             Opcode::INC => unimplemented!(),
@@ -332,13 +399,26 @@ mod tests {
 
         cpu.bus_apply(|bus| {
             const AB_ADD: u8 = 0x80;
+            const AIMM8_ADD: u8 = 0xC6;
+            const HLBC_ADD: u8 = 0x09;
 
-            bus.write_byte(RAM_START, AB_ADD)
-                .expect("AB addition to be written to RAM");
-            bus.write_byte(RAM_START + 1, AB_ADD)
-                .expect("AB addition to be written to RAM");
+            // Let the first addition be A += Imm8(10)
+            bus.write_byte(RAM_START, AIMM8_ADD)
+                .expect("AImm8 addition to be written to RAM");
+            bus.write_byte(RAM_START + 1, 10)
+                .expect("Imm8 value to be written to RAM");
+            // Let the following 2 additions be A += B
             bus.write_byte(RAM_START + 2, AB_ADD)
                 .expect("AB addition to be written to RAM");
+            bus.write_byte(RAM_START + 3, AB_ADD)
+                .expect("AB addition to be written to RAM");
+            // Let the following 3 additions be HL += BC
+            bus.write_byte(RAM_START + 4, HLBC_ADD)
+                .expect("HLBC addition to be written to RAM");
+            bus.write_byte(RAM_START + 5, HLBC_ADD)
+                .expect("HLBC addition to be written to RAM");
+            bus.write_byte(RAM_START + 6, HLBC_ADD)
+                .expect("HLBC addition to be written to RAM");
         });
 
         cpu.BC.set_high(10);
@@ -356,8 +436,8 @@ mod tests {
         // Assert that the subtraction flag has been reset after addition
         assert_ne!(cpu.AF.get_low() & Flag::N.mask(), Flag::N.mask());
 
-        // Assert that PC has moved after addition
-        assert_eq!(u16::from(cpu.PC), RAM_START + 1);
+        // Assert that PC has moved after Imm8 addition (which is 2 bytes wide)
+        assert_eq!(u16::from(cpu.PC), RAM_START + 2);
 
         // Assert that we did not 4-bit overflow by checking flag H
         assert_ne!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
@@ -380,6 +460,39 @@ mod tests {
         assert_eq!(cpu.AF.get_low() & Flag::C.mask(), Flag::C.mask());
         // Assert that we did hit Zero by checking flag Z
         assert_eq!(cpu.AF.get_low() & Flag::Z.mask(), Flag::Z.mask());
+
+        // Initial BC state
+        cpu.BC = Word::from(0x1FFFu16);
+        // Initial HL state
+        assert_eq!(cpu.HL, Word::nil());
+        // Reset flags
+        cpu.AF = Word::nil();
+
+        cpu.step().expect("CPU to step");
+
+        // Assert that HLBC addition succeeded
+        assert_eq!(cpu.HL, Word::from(0x1FFFu16));
+        // Assert that 16-bit half-carry was set
+        assert_eq!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
+
+        cpu.step().expect("CPU to step");
+
+        // Assert that HLBC addition succeeded
+        assert_eq!(cpu.HL, Word::from(0x3FFEu16));
+        // Check that we do not get the half-carry bit again (already carried)
+        assert_ne!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
+
+        // Force an overflow resulting in carry bit set
+        cpu.BC = Word::from(0xFFFFu16);
+
+        cpu.step().expect("CPU to step");
+
+        // Assert that HLBC overflow addition succeeded
+        assert_eq!(cpu.HL, Word::from(0x3FFDu16));
+        // Check that we do not get the half-carry bit again (already carried)
+        assert_ne!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
+        // Check that we got the overflow
+        assert_eq!(cpu.AF.get_low() & Flag::C.mask(), Flag::C.mask());
     }
 
     #[test]
@@ -389,10 +502,10 @@ mod tests {
         // Since RAM is zeroed we should be able to step through NOP instructions
         let prev_pc = cpu.PC;
         cpu.step().expect("nop step");
-        assert_eq!(prev_pc + 1.into(), cpu.PC);
+        assert_eq!(prev_pc + 1u8.into(), cpu.PC);
         cpu.step().expect("nop step");
         cpu.step().expect("nop step");
         cpu.step().expect("nop step");
-        assert_eq!(prev_pc + 4.into(), cpu.PC);
+        assert_eq!(prev_pc + 4u8.into(), cpu.PC);
     }
 }

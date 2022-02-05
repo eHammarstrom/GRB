@@ -51,6 +51,10 @@ impl<Cpu: crate::cpu::CPU + Debug> std::error::Error for CPUError<Cpu> {}
 pub struct Word(u16);
 
 impl Word {
+    pub fn nil() -> Self {
+        Word(0)
+    }
+
     pub fn set_high(&mut self, b: u8) {
         self.0 = (b as u16) << 8 | self.0 & 0xFF;
     }
@@ -80,6 +84,12 @@ impl Word {
     pub fn get_bit(&self, bit: u8) -> u16 {
         assert!(bit < 16);
         self.0 & 1 << bit
+    }
+}
+
+impl From<u8> for Word {
+    fn from(val: u8) -> Self {
+        Word(val as u16)
     }
 }
 
