@@ -2,14 +2,14 @@
 #![allow(non_snake_case)]
 
 use crate::addressable::*;
-use crate::bus::{Bus};
+use crate::bus::Bus;
 use crate::cpu;
 use crate::cpu::CPUError;
 use crate::cpu::Word;
 use crate::gameboy_cpu_inst::*;
 use crate::timed::*;
 
-use std::{cmp, ops};
+use std::{cmp, fmt, ops};
 
 use either::*;
 
@@ -44,6 +44,28 @@ pub enum Reg {
     HL,
     PC,
     SP,
+}
+
+impl fmt::Display for Reg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Reg::*;
+        match self {
+            A => f.write_str("A"),
+            B => f.write_str("B"),
+            C => f.write_str("C"),
+            D => f.write_str("D"),
+            E => f.write_str("E"),
+            F => f.write_str("F"),
+            H => f.write_str("H"),
+            L => f.write_str("L"),
+            AF => f.write_str("AF"),
+            BC => f.write_str("BC"),
+            DE => f.write_str("DE"),
+            HL => f.write_str("HL"),
+            PC => f.write_str("PC"),
+            SP => f.write_str("SP"),
+        }
+    }
 }
 
 /// CPU Flag register flags
@@ -288,7 +310,8 @@ impl cpu::CPU for CPU {
             Opcode::NOP => self.PC += Word::from(1u8),
             Opcode::LD => {
                 // First we retrieve the value we need to store
-                let src_val: Self::Data = self.operand_to_value(instruction.src, self.PC)?
+                let src_val: Self::Data = self
+                    .operand_to_value(instruction.src, self.PC)?
                     .expect_left("LD to only fetch a single byte");
 
                 // LD either loads into Reg or Addr
@@ -297,13 +320,14 @@ impl cpu::CPU for CPU {
                         self.set_reg_byte(r, src_val)?;
                     }
                     _ => {
-                        let dst_addr: Self::Addr = self.operand_to_value(instruction.dst, self.PC)?.into_word();
+                        let dst_addr: Self::Addr =
+                            self.operand_to_value(instruction.dst, self.PC)?.into_word();
                         self.bus.write_byte(dst_addr, src_val)?;
                     }
                 }
 
                 self.PC += Word::from(instruction.width);
-            },
+            }
             Opcode::ADD => {
                 // We expect DST to be a Reg since there is no ADD instruction
                 // with anything other than a Reg as the dst
@@ -351,7 +375,82 @@ impl cpu::CPU for CPU {
 
                 self.PC += Word::from(instruction.width);
             }
-            Opcode::ADC => unimplemented!(),
+            Opcode::ADC => {
+                // We expect DST to be a Reg since there is no ADD instruction
+                // with anything other than a Reg as the dst
+                let dst_reg = self
+                    .operand_to_reg(instruction.dst)
+                    .expect("ADD dst operand to be a register");
+
+                // Always clear SUB flag if addition was performed
+                self.AF.unset_bit(Flag::N.bit());
+
+                match self.operand_to_value(instruction.dst, self.PC)? {
+                    Either::Left(dst_byte) => {
+                        let src_val = self.operand_to_byte(instruction.src, self.PC)?;
+                        let carry_val = if self.AF.is_bit_set(Flag::C.bit()) {
+                            1
+                        } else {
+                            0
+                        };
+
+                        if check_overflow(
+                            dst_byte as u16,
+                            src_val as u16 + carry_val as u16,
+                            CPU::U4MAX.into(),
+                        ) {
+                            self.AF.set_bit(Flag::H.bit());
+                        }
+                        if check_overflow(
+                            dst_byte as u16,
+                            src_val as u16 + carry_val as u16,
+                            CPU::U8MAX.into(),
+                        ) {
+                            self.AF.set_bit(Flag::C.bit());
+                        }
+
+                        self.set_reg_byte(
+                            dst_reg,
+                            dst_byte.wrapping_add(src_val.wrapping_add(carry_val)),
+                        )?;
+                    }
+                    Either::Right(dst_word) => {
+                        let src_val = self.operand_to_word(instruction.src, self.PC)?;
+                        let carry_val = if self.AF.is_bit_set(Flag::C.bit()) {
+                            1
+                        } else {
+                            0
+                        };
+
+                        if check_overflow(
+                            dst_word as u32,
+                            src_val as u32 + carry_val as u32,
+                            CPU::U12MAX.into(),
+                        ) {
+                            self.AF.set_bit(Flag::H.bit());
+                        }
+                        if check_overflow(
+                            dst_word as u32,
+                            src_val as u32 + carry_val as u32,
+                            CPU::U16MAX.into(),
+                        ) {
+                            self.AF.set_bit(Flag::C.bit());
+                        }
+
+                        self.set_reg_word(
+                            dst_reg,
+                            dst_word.wrapping_add(src_val.wrapping_add(carry_val)),
+                        )?;
+                    }
+                }
+
+                // Check if result was Zero
+                if self.get_reg_value(dst_reg).into_word() == 0 {
+                    self.AF.set_bit(Flag::Z.bit())
+                }
+
+                self.PC += Word::from(instruction.width);
+            }
             Opcode::INC => unimplemented!(),
             Opcode::DEC => unimplemented!(),
             Opcode::RLCA => unimplemented!(),
@@ -465,7 +564,7 @@ mod tests {
 
         cpu.step().expect("CPU to step once");
 
-        // Assert our addition into register A (0) from B (10)
+        // Assert our addition into register A (0) from Imm8 (10)
         assert_eq!(cpu.AF.get_high(), 10);
         // Assert that the subtraction flag has been reset after addition
         assert_ne!(cpu.AF.get_low() & Flag::N.mask(), Flag::N.mask());
@@ -548,5 +647,72 @@ mod tests {
         cpu.step().expect("nop step");
         cpu.step().expect("nop step");
         assert_eq!(prev_pc + 4u8.into(), cpu.PC);
+    }
+
+    #[test]
+    fn test_cpu_ADC() {
+        let mut cpu = setup_gameboy(RAM_START);
+
+        cpu.bus_apply(|bus| {
+            const AB_ADC: u8 = 0x88;
+            const AIMM8_ADD: u8 = 0xC6;
+            const LD_B_IMM8: u8 = 0x06;
+
+            // Let the first addition be A += Imm8(10)
+            bus.write_byte(RAM_START, AIMM8_ADD)
+                .expect("AImm8 addition to be written to RAM");
+            bus.write_byte(RAM_START + 1, 10)
+                .expect("Imm8 value to be written to RAM");
+            // LD 250 into B to prepare for some additions
+            bus.write_byte(RAM_START + 2, LD_B_IMM8)
+                .expect("LD B Imm8 operation to be written to RAM");
+            bus.write_byte(RAM_START + 3, 250)
+                .expect("LD B Imm8 value (250) to be written to RAM");
+            // Let the following 2 additions be A += B
+            bus.write_byte(RAM_START + 4, AB_ADC)
+                .expect("ADC AB addition to be written to RAM");
+            bus.write_byte(RAM_START + 5, AB_ADC)
+                .expect("ADC AB addition to be written to RAM");
+        });
+
+        cpu.step().expect("CPU to step once");
+
+        // Assert our addition into register A (0) from Imm8 (10)
+        assert_eq!(cpu.AF.get_high(), 10);
+        assert_eq!(u16::from(cpu.PC), RAM_START + 2);
+
+        // LD: B <- 250
+        cpu.step().expect("CPU to step twice");
+
+        // Check that we loaded 250 into B and moved 2 steps (width of the LD Imm8 instr)
+        assert_eq!(cpu.BC.get_high(), 250);
+        assert_eq!(u16::from(cpu.PC), RAM_START + 4);
+
+        // Verify carries unset
+        assert_eq!(cpu.AF.get_bit(Flag::C.bit()), 0);
+        assert_eq!(cpu.AF.get_bit(Flag::H.bit()), 0);
+
+        // ADC: A <- A + B + Carry
+        cpu.step().expect("CPU to step thrice");
+
+        assert_eq!(cpu.AF.get_high(), 4);
+        assert_eq!(u16::from(cpu.PC), RAM_START + 5);
+
+        // Verify that carries were set after 250 + 10 + (0 Carry) % 256 = 4
+        assert_eq!(cpu.AF.get_bit(Flag::C.bit()), Flag::C.mask() as u16);
+        assert_eq!(cpu.AF.get_bit(Flag::H.bit()), Flag::H.mask() as u16);
+
+        // Set B to 0 to let the last addition be A <- A + 0 + Carry
+        cpu.BC.set_high(0);
+
+        // ADC: A <- A + B + Carry
+        cpu.step().expect("CPU to step");
+
+        // Verify that carries were unset after 4 + 0 + (1 Carry) % 256 = 5
+        assert_eq!(cpu.AF.get_high(), 5);
+        assert_eq!(u16::from(cpu.PC), RAM_START + 6);
+
+        assert_eq!(cpu.AF.get_bit(Flag::C.bit()), Flag::C.mask() as u16);
+        assert_eq!(cpu.AF.get_bit(Flag::H.bit()), Flag::H.mask() as u16);
     }
 }

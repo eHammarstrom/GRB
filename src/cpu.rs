@@ -85,6 +85,11 @@ impl Word {
         assert!(bit < 16);
         self.0 & 1 << bit
     }
+
+    pub fn is_bit_set(&self, bit: u8) -> bool {
+        assert!(bit < 16);
+        (self.0 & 1 << bit) != 0
+    }
 }
 
 impl From<u8> for Word {
