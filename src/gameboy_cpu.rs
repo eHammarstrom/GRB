@@ -1,5 +1,8 @@
+// Due to the naming of some registers we allow non_snake_case
+#![allow(non_snake_case)]
+
 use crate::addressable::*;
-use crate::bus::{Bus, CopyOf};
+use crate::bus::{Bus};
 use crate::cpu;
 use crate::cpu::CPUError;
 use crate::cpu::Word;
@@ -9,6 +12,19 @@ use crate::timed::*;
 use std::{cmp, ops};
 
 use either::*;
+
+trait EitherIntoWordExt {
+    fn into_word(self) -> u16;
+}
+
+impl EitherIntoWordExt for Either<u8, u16> {
+    fn into_word(self) -> u16 {
+        match self {
+            Either::Left(byte) => byte.into(),
+            Either::Right(word) => word,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum Reg {
@@ -264,14 +280,30 @@ impl cpu::CPU for CPU {
 
     /// Executes the instruction at PC and returns cycles spent
     fn step(&mut self) -> Result<u32, CPUError<Self>> {
-        let instr_pc: u16 = self.PC.into();
-        let opcode: u8 = self.bus.read_byte(instr_pc)?;
-        let instruction = INSTRUCTION_LOOKUP[opcode as usize];
+        let opcode: u8 = self.bus.read_byte(self.PC.into())?;
+        let instruction: Instr = INSTRUCTION_LOOKUP[opcode as usize];
 
         match instruction.opcode {
-            Opcode::Invalid => return Err(AddressError::IllegalInstr(instr_pc).into()),
+            Opcode::Invalid => return Err(AddressError::IllegalInstr(self.PC.into()).into()),
             Opcode::NOP => self.PC += Word::from(1u8),
-            Opcode::LD => unimplemented!(),
+            Opcode::LD => {
+                // First we retrieve the value we need to store
+                let src_val: Self::Data = self.operand_to_value(instruction.src, self.PC)?
+                    .expect_left("LD to only fetch a single byte");
+
+                // LD either loads into Reg or Addr
+                match instruction.dst {
+                    Operand::Value(r) => {
+                        self.set_reg_byte(r, src_val)?;
+                    }
+                    _ => {
+                        let dst_addr: Self::Addr = self.operand_to_value(instruction.dst, self.PC)?.into_word();
+                        self.bus.write_byte(dst_addr, src_val)?;
+                    }
+                }
+
+                self.PC += Word::from(instruction.width);
+            },
             Opcode::ADD => {
                 // We expect DST to be a Reg since there is no ADD instruction
                 // with anything other than a Reg as the dst
@@ -313,10 +345,8 @@ impl cpu::CPU for CPU {
                 }
 
                 // Check if result was Zero
-                match self.get_reg_value(dst_reg) {
-                    Either::Left(b) if b == 0 => self.AF.set_bit(Flag::Z.bit()),
-                    Either::Right(w) if w == 0 => self.AF.set_bit(Flag::Z.bit()),
-                    _ => (),
+                if self.get_reg_value(dst_reg).into_word() == 0 {
+                    self.AF.set_bit(Flag::Z.bit())
                 }
 
                 self.PC += Word::from(instruction.width);
@@ -401,27 +431,31 @@ mod tests {
             const AB_ADD: u8 = 0x80;
             const AIMM8_ADD: u8 = 0xC6;
             const HLBC_ADD: u8 = 0x09;
+            const LD_B_IMM8: u8 = 0x06;
 
             // Let the first addition be A += Imm8(10)
             bus.write_byte(RAM_START, AIMM8_ADD)
                 .expect("AImm8 addition to be written to RAM");
             bus.write_byte(RAM_START + 1, 10)
                 .expect("Imm8 value to be written to RAM");
+            // LD 10 into B to prepare for some additions
+            bus.write_byte(RAM_START + 2, LD_B_IMM8)
+                .expect("LD B Imm8 operation to be written to RAM");
+            bus.write_byte(RAM_START + 3, 10)
+                .expect("LD B Imm8 value (10) to be written to RAM");
             // Let the following 2 additions be A += B
-            bus.write_byte(RAM_START + 2, AB_ADD)
+            bus.write_byte(RAM_START + 4, AB_ADD)
                 .expect("AB addition to be written to RAM");
-            bus.write_byte(RAM_START + 3, AB_ADD)
+            bus.write_byte(RAM_START + 5, AB_ADD)
                 .expect("AB addition to be written to RAM");
             // Let the following 3 additions be HL += BC
-            bus.write_byte(RAM_START + 4, HLBC_ADD)
-                .expect("HLBC addition to be written to RAM");
-            bus.write_byte(RAM_START + 5, HLBC_ADD)
-                .expect("HLBC addition to be written to RAM");
             bus.write_byte(RAM_START + 6, HLBC_ADD)
                 .expect("HLBC addition to be written to RAM");
+            bus.write_byte(RAM_START + 7, HLBC_ADD)
+                .expect("HLBC addition to be written to RAM");
+            bus.write_byte(RAM_START + 8, HLBC_ADD)
+                .expect("HLBC addition to be written to RAM");
         });
-
-        cpu.BC.set_high(10);
 
         // Set the "Subtraction flag before we perform the addition
         cpu.AF.set_low(Flag::N.mask());
@@ -441,6 +475,13 @@ mod tests {
 
         // Assert that we did not 4-bit overflow by checking flag H
         assert_ne!(cpu.AF.get_low() & Flag::H.mask(), Flag::H.mask());
+
+        // LD: B <- 10
+        cpu.step().expect("CPU to step twice");
+
+        // Check that we loaded 10 into B and moved 2 steps (width of the LD Imm8 instr)
+        assert_eq!(cpu.BC.get_high(), 10);
+        assert_eq!(u16::from(cpu.PC), RAM_START + 4);
 
         cpu.step().expect("CPU to step twice");
 
